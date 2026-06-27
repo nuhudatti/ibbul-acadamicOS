@@ -82,6 +82,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -221,6 +222,14 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 # Media — user-facing assets live on Cloudinary (URLs in DB). Local MEDIA_ROOT is for
 # ephemeral result upload batches / error CSVs only (not served in production).
@@ -284,20 +293,23 @@ SIMPLE_JWT = {
     'TOKEN_OBTAIN_SERIALIZER': 'apps.accounts.token_serializers.CustomTokenObtainPairSerializer',
 }
 
-# CORS Settings
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",   # Unified Next.js platform
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "http://localhost:5173",   # Vite (legacy)
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-    "http://127.0.0.1:3002",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:8000",
-]
-
+# CORS Settings — set CORS_ALLOWED_ORIGINS in production (comma-separated HTTPS URLs)
+_cors_env = os.getenv('CORS_ALLOWED_ORIGINS', '').strip()
+if _cors_env:
+    CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(',') if o.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",   # Unified Next.js platform
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:5173",   # Vite (legacy)
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3002",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8000",
+    ]
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -342,7 +354,7 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 # Error report download TTL (minutes)
 UPLOAD_REPORT_DOWNLOAD_TTL_MINUTES = int(os.getenv('UPLOAD_REPORT_DOWNLOAD_TTL_MINUTES', '10'))
 
-# Logging Configuration
+# Logging — stdout/stderr only (Render, Railway, Docker, Gunicorn capture logs)
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -357,24 +369,19 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'file': {
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'django.log',
-            'formatter': 'verbose',
-        },
     },
     'root': {
-        'handlers': ['console', 'file'],
+        'handlers': ['console'],
         'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'apps': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': False,
         },

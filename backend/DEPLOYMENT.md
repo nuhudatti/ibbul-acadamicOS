@@ -144,7 +144,61 @@ npm start
 
 ---
 
-## Part 5 — Production checklist
+## Part 5 — Render deployment
+
+### 1. Create Web Service
+
+| Setting | Value |
+|---------|--------|
+| **Root Directory** | `backend` |
+| **Runtime** | Python (uses `runtime.txt` → **3.12.10**) |
+| **Build Command** | `./build.sh` |
+| **Start Command** | `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120` |
+
+Or use the included `Procfile` if Render detects it automatically.
+
+### 2. Environment variables (Render dashboard)
+
+```env
+DEBUG=False
+SECRET_KEY=<openssl-rand-hex-32>
+ALLOWED_HOSTS=your-service.onrender.com
+CSRF_TRUSTED_ORIGINS=https://your-frontend-domain.com
+CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com
+DATABASE_URL=postgresql://user:pass@ep-xxxx.neon.tech/neondb?sslmode=require
+FRONTEND_BASE_URL=https://your-frontend-domain.com
+
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+MEDIA_USE_CLOUDINARY=True
+
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.sendgrid.net
+EMAIL_PORT=587
+EMAIL_USE_TLS=true
+EMAIL_HOST_USER=apikey
+EMAIL_HOST_PASSWORD=<sendgrid-api-key>
+DEFAULT_FROM_EMAIL=IBBUL Academic OS <noreply@ibbul.edu.ng>
+```
+
+### 3. Post-deploy
+
+```bash
+# Run once via Render Shell or as a one-off job:
+python manage.py migrate
+python manage.py setup_groups
+```
+
+Then open the frontend → complete `/setup` wizard.
+
+### 4. Logs
+
+All logs go to **stdout** (Render Logs tab). No `backend/logs/django.log` file is used.
+
+---
+
+## Part 6 — Production checklist
 
 | Step | Command / action |
 |------|------------------|
