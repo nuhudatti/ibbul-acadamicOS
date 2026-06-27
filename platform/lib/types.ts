@@ -125,6 +125,7 @@ export interface Result {
   course_code: string | null
   course_title: string | null
   credit_units: number | null
+  course_units?: number | null
   course_info?: {
     id?: number
     code?: string

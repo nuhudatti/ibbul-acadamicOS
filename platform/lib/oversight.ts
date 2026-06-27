@@ -117,10 +117,15 @@ async function fetchAllFaculties(): Promise<Faculty[]> {
 }
 
 async function fetchAllDepartments(facultyId?: number): Promise<Department[]> {
-  const params = facultyId ? { faculty_id: String(facultyId) } : {}
+  const params: Record<string, string> = {};
+
+  if (facultyId) {
+    params.faculty_id = String(facultyId);
+  }
+  
   return fetchPaginated<Department>(
     (p) => coreAPI.getDepartments({ ...params, ...p }) as never
-  )
+  );
 }
 
 async function fetchAllBatches(): Promise<UploadBatchRow[]> {
