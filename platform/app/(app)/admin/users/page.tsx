@@ -446,7 +446,9 @@ export default function UsersPage() {
         preset={invitePreset}
         inviterRole={isDean ? 'FACULTY_ADMIN' : 'SUPER_ADMIN'}
         lockedFacultyId={isDean ? user?.faculty_id : undefined}
-        lockedFacultyName={isDean ? user?.faculty_name : undefined}
+        lockedFacultyName={
+          isDean ? (user?.faculty_name ?? undefined) : undefined
+        }
       />
     </div>
   )
