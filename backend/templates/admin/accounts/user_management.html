@@ -1,0 +1,316 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+<style>
+    .um-wrap { max-width: 1400px; }
+    .um-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .um-search { flex: 1; min-width: 260px; }
+    .um-search input { width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 14px; }
+    .um-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .um-filters select { padding: 6px 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 13px; }
+    .um-filters .btn-link { background: none; border: none; color: #6b7280; cursor: pointer; text-decoration: underline; font-size: 13px; }
+    .um-filters .btn-link:hover { color: #111; }
+    .um-table-wrap { overflow-x: auto; margin-bottom: 16px; }
+    .um-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .um-table th, .um-table td { border: 1px solid #e5e7eb; padding: 10px 12px; text-align: left; vertical-align: middle; }
+    .um-table th { background: #f9fafb; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+    .um-table tbody tr:hover { background: #f9fafb; }
+    .um-table .checkbox-cell { width: 36px; }
+    .um-table .actions-cell { white-space: nowrap; }
+    .badge { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+    .badge-active { background: #d1fae5; color: #065f46; }
+    .badge-inactive { background: #fee2e2; color: #991b1b; }
+    .badge-warning { background: #fef3c7; color: #92400e; }
+    .badge-muted { background: #e5e7eb; color: #4b5563; }
+    .badge-role { background: #dbeafe; color: #1e40af; }
+    .dropdown-actions { position: relative; display: inline-block; }
+    .btn-dropdown { padding: 4px 10px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; cursor: pointer; }
+    .btn-dropdown:hover { background: #f3f4f6; }
+    .dropdown-menu { position: absolute; left: 0; top: 100%; margin-top: 2px; min-width: 200px; background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 10; padding: 4px 0; }
+    .dropdown-menu a { display: block; padding: 8px 12px; color: #111; text-decoration: none; font-size: 13px; }
+    .dropdown-menu a:hover, .dropdown-menu .dropdown-link:hover { background: #f3f4f6; }
+    .dropdown-menu .dropdown-link { display: block; width: 100%; padding: 8px 12px; border: none; background: none; cursor: pointer; text-align: left; font-size: 13px; color: #111; text-decoration: none; }
+    .um-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+    .um-pagination a, .um-pagination span { padding: 6px 10px; font-size: 13px; }
+    .um-bulk { margin-bottom: 12px; }
+    .um-bulk select { padding: 6px 10px; margin-right: 8px; }
+    .empty-state { text-align: center; padding: 40px 20px; color: #6b7280; }
+    .um-loading { opacity: 0.6; pointer-events: none; }
+    .text-muted { color: #9ca3af; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="um-wrap module">
+    <h1 style="margin-bottom: 8px;">{{ title|default:"User management" }}</h1>
+    <p style="color: #6b7280; margin-bottom: 16px;">Search, filter, and manage users. Reset passwords, activate or deactivate accounts. <strong>Password status</strong> is live: it shows &quot;Must change&quot; when a user must set a password on next login, and &quot;Set&quot; when they have already set it. It updates when (1) you add or import a user, (2) you reset their password, or (3) they complete the first-login change-password step. All actions are audited.</p>
+
+    {% if messages %}
+    <ul class="messagelist">
+        {% for message in messages %}
+        <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <form id="filter-form" method="get" action="{% url 'admin_user_management' %}" class="um-toolbar">
+        <div class="um-search">
+            <input type="search" name="search" value="{{ filters.search|default:'' }}" placeholder="Search by reg number, name, or email…" aria-label="Search users" id="um-search-input">
+        </div>
+        <button type="submit" class="button">Search</button>
+    </form>
+
+    <form id="filter-form-full" method="get" action="{% url 'admin_user_management' %}">
+        <input type="hidden" name="search" value="{{ filters.search|default:'' }}" id="um-search-hidden">
+        <div class="um-filters">
+            <label for="um-role">Role:</label>
+            <select name="role" id="um-role">
+                <option value="">All</option>
+                {% for value, label in role_choices %}
+                <option value="{{ value }}" {% if filters.role == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <label for="um-status">Status:</label>
+            <select name="status" id="um-status">
+                <option value="">All</option>
+                <option value="active" {% if filters.status == 'active' %}selected{% endif %}>Active</option>
+                <option value="inactive" {% if filters.status == 'inactive' %}selected{% endif %}>Inactive</option>
+            </select>
+            <label for="um-first-login">Password status:</label>
+            <select name="first_login" id="um-first-login">
+                <option value="">All</option>
+                <option value="must_change" {% if filters.first_login == 'must_change' %}selected{% endif %}>Must change password</option>
+                <option value="set" {% if filters.first_login == 'set' %}selected{% endif %}>Password set</option>
+            </select>
+            <label for="um-department">Department:</label>
+            <input type="text" name="department" id="um-department" value="{{ filters.department|default:'' }}" placeholder="Filter by department" style="padding: 6px 10px; width: 140px;">
+            <label for="um-last-login">Last login:</label>
+            <select name="last_login" id="um-last-login">
+                <option value="">All</option>
+                <option value="never" {% if filters.last_login == 'never' %}selected{% endif %}>Never</option>
+                <option value="7d" {% if filters.last_login == '7d' %}selected{% endif %}>Last 7 days</option>
+                <option value="30d" {% if filters.last_login == '30d' %}selected{% endif %}>Last 30 days</option>
+            </select>
+            <label for="um-sort">Sort:</label>
+            <select name="sort" id="um-sort">
+                <option value="identifier" {% if filters.sort == 'identifier' %}selected{% endif %}>Reg number</option>
+                <option value="name" {% if filters.sort == 'name' %}selected{% endif %}>Name</option>
+                <option value="last_login" {% if filters.sort == 'last_login' %}selected{% endif %}>Last login</option>
+            </select>
+            <label for="um-page-size">Per page:</label>
+            <select name="page_size" id="um-page-size">
+                {% for n in page_sizes %}
+                <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="button">Apply</button>
+            <a href="{% url 'admin_user_management' %}" class="btn-link">Clear filters</a>
+        </div>
+    </form>
+
+    <form id="bulk-form" method="post" action="{% url 'admin_user_management' %}">
+        {% csrf_token %}
+        <input type="hidden" name="search" value="{{ filters.search|default:'' }}">
+        <input type="hidden" name="role" value="{{ filters.role|default:'' }}">
+        <input type="hidden" name="status" value="{{ filters.status|default:'' }}">
+        <input type="hidden" name="first_login" value="{{ filters.first_login|default:'' }}">
+        <input type="hidden" name="department" value="{{ filters.department|default:'' }}">
+        <input type="hidden" name="last_login" value="{{ filters.last_login|default:'' }}">
+        <input type="hidden" name="sort" value="{{ filters.sort|default:'' }}">
+        <input type="hidden" name="page_size" value="{{ page_size|default:25 }}">
+        <div class="um-bulk">
+            <span>Bulk actions:</span>
+            <button type="submit" name="action" value="bulk_activate" class="button bulk-btn" data-confirm="Activate selected users?">Activate</button>
+            <button type="submit" name="action" value="bulk_deactivate" class="button bulk-btn" data-confirm="Deactivate selected users? You cannot deactivate yourself or other staff unless you are Super Admin.">Deactivate</button>
+            <button type="submit" name="action" value="bulk_reset_temp" class="button bulk-btn" data-confirm="Reset passwords to temporary for selected users? You will get a one-time CSV download.">Reset to temp password</button>
+        </div>
+
+        <div class="um-table-wrap" id="um-table-wrap">
+            <table class="um-table">
+                <thead>
+                    <tr>
+                        <th class="checkbox-cell"><input type="checkbox" id="select-all" aria-label="Select all on page"></th>
+                        <th><a href="?{{ sort_base }}{% if sort_base %}&{% endif %}sort=identifier">Reg number</a></th>
+                        <th><a href="?{{ sort_base }}{% if sort_base %}&{% endif %}sort=name">Full name</a></th>
+                        <th>Role</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th title="Must change = user must set password on next login; Set = password already set (updated when they complete first login or admin resets)">Password status</th>
+                        <th><a href="?{{ sort_base }}{% if sort_base %}&{% endif %}sort=last_login">Last login</a></th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="um-tbody">
+                    {% for u in users %}
+                    <tr data-user-id="{{ u.pk }}">
+                        <td class="checkbox-cell"><input type="checkbox" name="user_ids" value="{{ u.pk }}" form="bulk-form" class="user-select" aria-label="Select {{ u.get_full_name }}"></td>
+                        <td><strong>{{ u.student_id|default:u.email|default:"—" }}</strong></td>
+                        <td>{{ u.get_full_name }}</td>
+                        <td><span class="badge badge-role">{{ u.get_role_display }}</span></td>
+                        <td>{{ u.email|default:"—" }}</td>
+                        <td>
+                            {% if u.is_active %}<span class="badge badge-active">Active</span>{% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}
+                        </td>
+                        <td title="{% if u.is_first_login %}User must set password on next login{% else %}User has set their password{% endif %}">
+                            {% if u.is_first_login %}<span class="badge badge-warning">Must change</span>{% else %}<span class="badge badge-muted">Set</span>{% endif %}
+                        </td>
+                        <td>{% if u.last_login %}<span title="{{ u.last_login|date:'M d, Y H:i' }}">{{ u.last_login|timesince }} ago</span>{% else %}<span class="text-muted">Never</span>{% endif %}</td>
+                        <td class="actions-cell">
+                            <div class="dropdown-actions">
+                                <button type="button" class="btn-dropdown" aria-haspopup="true" aria-expanded="false" data-dropdown-trigger>Actions ▾</button>
+                                <div class="dropdown-menu" role="menu" hidden>
+                                    <form method="post" action="{% url 'admin_user_management' %}" style="margin:0;" data-confirm="Reset this user to a temporary password? You will get a one-time download.">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="reset_to_temp_password">
+                                        <input type="hidden" name="user_id" value="{{ u.pk }}">
+                                        <button type="submit" class="dropdown-link">Reset to temporary password</button>
+                                    </form>
+                                    <button type="button" class="dropdown-link custom-password-btn" data-user-id="{{ u.pk }}" data-name="{{ u.get_full_name }}">Set custom password</button>
+                                    {% if u.is_active %}
+                                    <form method="post" action="{% url 'admin_user_management' %}" style="margin:0;" data-confirm="Deactivate this user?">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="deactivate">
+                                        <input type="hidden" name="user_id" value="{{ u.pk }}">
+                                        <button type="submit" class="dropdown-link">Deactivate</button>
+                                    </form>
+                                    {% else %}
+                                    <form method="post" action="{% url 'admin_user_management' %}" style="margin:0;">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="activate">
+                                        <input type="hidden" name="user_id" value="{{ u.pk }}">
+                                        <button type="submit" class="dropdown-link">Activate</button>
+                                    </form>
+                                    {% endif %}
+                                    <a href="{% url 'admin_audit_logs' %}?user_id={{ u.pk }}" class="dropdown-link" target="_blank">View audit history</a>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="9" class="empty-state">No users match the current filters.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="um-pagination">
+            {% if users.has_previous %}
+            <a href="?{{ query_no_page }}{% if query_no_page %}&{% endif %}page={{ users.previous_page_number }}">← Previous</a>
+            {% endif %}
+            <span>Page {{ users.number }} of {{ users.paginator.num_pages }} ({{ users.paginator.count }} total)</span>
+            {% if users.has_next %}
+            <a href="?{{ query_no_page }}{% if query_no_page %}&{% endif %}page={{ users.next_page_number }}">Next →</a>
+            {% endif %}
+        </div>
+    </form>
+
+    <div style="margin-top: 24px;">
+        <a href="{% url 'admin_users_accounts' %}" style="color: #10b981; text-decoration: none;">← Users / Accounts</a>
+        &nbsp;|&nbsp;
+        <a href="{% url 'admin:index' %}" style="color: #10b981; text-decoration: none;">Back to Admin</a>
+    </div>
+</div>
+
+<!-- Custom password modal -->
+<div id="custom-password-modal" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 100; align-items: center; justify-content: center;">
+    <div style="background: #fff; padding: 24px; border-radius: 8px; max-width: 400px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
+        <h3 style="margin-top: 0;">Set custom password</h3>
+        <p id="custom-password-user-name" style="color: #6b7280; margin-bottom: 12px;"></p>
+        <form id="custom-password-form" method="post" action="{% url 'admin_user_management' %}">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="reset_password">
+            <input type="hidden" name="user_id" id="custom-password-user-id" value="">
+            <label for="custom-password-input">New password (min 8 characters):</label>
+            <input type="password" name="new_password" id="custom-password-input" minlength="8" required style="width: 100%; padding: 8px; margin: 8px 0 16px; box-sizing: border-box;">
+            <div style="display: flex; gap: 8px;">
+                <button type="submit" class="button">Set password</button>
+                <button type="button" id="custom-password-cancel" class="button">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+(function() {
+    var searchInput = document.getElementById('um-search-input');
+    var searchHidden = document.getElementById('um-search-hidden');
+    var filterForm = document.getElementById('filter-form');
+    var filterFormFull = document.getElementById('filter-form-full');
+    var tbody = document.getElementById('um-tbody');
+    // Before any submit of the full form, sync search box so filters keep the current search term
+    if (filterFormFull && searchInput && searchHidden) {
+        filterFormFull.addEventListener('submit', function() {
+            searchHidden.value = searchInput.value.trim();
+        });
+    }
+    // Search runs only on Enter or Search button click – no auto-submit while typing
+    if (filterForm) {
+        filterForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (searchHidden) searchHidden.value = searchInput ? searchInput.value.trim() : '';
+            filterFormFull.submit();
+        });
+    }
+    // Keep focus in search box after load so you can refine without clicking back
+    if (searchInput && searchInput.value) searchInput.focus();
+
+    document.getElementById('um-role') && document.getElementById('um-role').addEventListener('change', function() { filterFormFull.submit(); });
+    document.getElementById('um-status') && document.getElementById('um-status').addEventListener('change', function() { filterFormFull.submit(); });
+    document.getElementById('um-first-login') && document.getElementById('um-first-login').addEventListener('change', function() { filterFormFull.submit(); });
+    document.getElementById('um-last-login') && document.getElementById('um-last-login').addEventListener('change', function() { filterFormFull.submit(); });
+    document.getElementById('um-sort') && document.getElementById('um-sort').addEventListener('change', function() { filterFormFull.submit(); });
+    document.getElementById('um-page-size') && document.getElementById('um-page-size').addEventListener('change', function() { filterFormFull.submit(); });
+
+    document.getElementById('select-all') && document.getElementById('select-all').addEventListener('change', function() {
+        document.querySelectorAll('.user-select').forEach(function(cb) { cb.checked = document.getElementById('select-all').checked; });
+    });
+
+    document.querySelectorAll('[data-dropdown-trigger]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var menu = btn.nextElementSibling;
+            var open = !menu.hidden;
+            document.querySelectorAll('.dropdown-menu').forEach(function(m) { m.hidden = true; });
+            document.querySelectorAll('[data-dropdown-trigger]').forEach(function(b) { b.setAttribute('aria-expanded', 'false'); });
+            if (!open) { menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); }
+        });
+    });
+    document.addEventListener('click', function() {
+        document.querySelectorAll('.dropdown-menu').forEach(function(m) { m.hidden = true; });
+        document.querySelectorAll('[data-dropdown-trigger]').forEach(function(b) { b.setAttribute('aria-expanded', 'false'); });
+    });
+
+    document.querySelectorAll('form[data-confirm]').forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            if (!confirm(form.getAttribute('data-confirm'))) e.preventDefault();
+        });
+    });
+
+    var bulkForm = document.getElementById('bulk-form');
+    if (bulkForm) {
+        bulkForm.addEventListener('submit', function(e) {
+            var checked = bulkForm.querySelectorAll('input[name="user_ids"]:checked');
+            if (checked.length === 0) { e.preventDefault(); alert('Select at least one user.'); return; }
+            var submitter = e.submitter;
+            if (submitter && submitter.classList && submitter.classList.contains('bulk-btn') && submitter.getAttribute('data-confirm')) {
+                if (!confirm(submitter.getAttribute('data-confirm'))) e.preventDefault();
+            }
+        });
+    }
+
+    var modal = document.getElementById('custom-password-modal');
+    document.querySelectorAll('.custom-password-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('custom-password-user-id').value = btn.getAttribute('data-user-id');
+            document.getElementById('custom-password-user-name').textContent = 'User: ' + (btn.getAttribute('data-name') || '');
+            document.getElementById('custom-password-input').value = '';
+            modal.style.display = 'flex';
+        });
+    });
+    document.getElementById('custom-password-cancel') && document.getElementById('custom-password-cancel').addEventListener('click', function() {
+        modal.style.display = 'none';
+    });
+})();
+</script>
+{% endblock %}

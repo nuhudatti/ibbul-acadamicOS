@@ -1,0 +1,320 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_list static %}
+{% comment %}Use show_lecturer_ui or is_examiner (from context processor) so lecturer UI always applies{% endcomment %}
+
+{% block bodyclass %}{{ block.super }}{% if show_lecturer_ui or is_examiner %} lecturer-view-results lecturer-no-sidebar{% endif %}{% endblock %}
+
+{# Remove entire sidebar on View results for lecturer #}
+{% block nav-sidebar %}
+  {% if show_lecturer_ui or is_examiner %}
+    {# No sidebar: lecturer sees only top nav (Home / View results / View my courses) #}
+  {% else %}
+    {{ block.super }}
+  {% endif %}
+{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  /* Results changelist — professional, scoped, no overlap */
+  .app-academics.model-result.change-list #content-main { max-width: 1400px; }
+
+  /* Lecturer scope banner */
+  .app-academics.model-result .result-lecturer-banner {
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 1px solid #bbf7d0;
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .app-academics.model-result .result-lecturer-banner strong { color: #166534; font-weight: 600; font-size: 1rem; }
+  .app-academics.model-result .result-lecturer-banner .result-lecturer-note { display: block; font-size: 13px; color: #15803d; margin-top: 6px; }
+
+  /* Toolbar */
+  .app-academics.model-result #changelist #toolbar {
+    padding: 12px 0;
+    margin-bottom: 16px;
+    border-top: 1px solid #e5e7eb;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fafafa;
+  }
+  .app-academics.model-result #changelist #toolbar form#changelist-search {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+  }
+  .app-academics.model-result #changelist #toolbar form#changelist-search > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
+  .app-academics.model-result #changelist #toolbar form#changelist-search label { flex-shrink: 0; margin: 0; }
+  .app-academics.model-result #changelist #toolbar form#changelist-search label img { vertical-align: middle; display: block; }
+  .app-academics.model-result #changelist #toolbar form#changelist-search #searchbar {
+    width: 280px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 8px 12px;
+    font-size: 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+  }
+  .app-academics.model-result #changelist #toolbar form#changelist-search #searchbar:focus {
+    outline: none;
+    border-color: #0d9488;
+    box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15);
+  }
+  .app-academics.model-result #changelist #toolbar form#changelist-search input[type="submit"] {
+    padding: 8px 14px;
+    font-size: 14px;
+    border-radius: 6px;
+    border: 1px solid #0d9488;
+    background: #0d9488;
+    color: #fff;
+    cursor: pointer;
+  }
+  .app-academics.model-result #changelist #toolbar form#changelist-search input[type="submit"]:hover {
+    background: #0f766e;
+    border-color: #0f766e;
+  }
+
+  /* Date hierarchy */
+  .app-academics.model-result #changelist .xfull { padding: 8px 0; }
+
+  /* Bulk actions */
+  .app-academics.model-result #changelist-form .actions {
+    padding: 12px 16px;
+    margin: 0 0 16px 0;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+  }
+  .app-academics.model-result #changelist-form .actions label { margin: 0; display: inline-flex; align-items: center; gap: 8px; }
+  .app-academics.model-result #changelist-form .actions select {
+    padding: 6px 10px;
+    font-size: 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    min-width: 200px;
+  }
+  .app-academics.model-result #changelist-form .actions .button {
+    padding: 8px 16px;
+    font-size: 14px;
+    border-radius: 6px;
+    background: #0d9488;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+  }
+  .app-academics.model-result #changelist-form .actions .button:hover { background: #0f766e; }
+  .app-academics.model-result #changelist-form .actions .action-counter { font-size: 13px; color: #64748b; }
+
+  /* Checkbox column */
+  .app-academics.model-result #changelist table thead th.action-checkbox-column,
+  .app-academics.model-result #changelist table tbody td.action-checkbox {
+    width: 2em;
+    min-width: 2em;
+    text-align: center;
+    vertical-align: middle;
+    padding: 10px 8px;
+  }
+  .app-academics.model-result #changelist table tbody td.action-checkbox input { margin: 0; cursor: pointer; }
+
+  /* Results table */
+  .app-academics.model-result #changelist .results {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  .app-academics.model-result #changelist .results table { font-size: 14px; }
+  .app-academics.model-result #changelist .results thead th {
+    padding: 12px 14px;
+    font-weight: 600;
+    color: #334155;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .app-academics.model-result #changelist .results tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .app-academics.model-result #changelist .results tbody tr:hover { background: #f8fafc; }
+
+  /* Filter sidebar */
+  .app-academics.model-result #changelist-filter {
+    flex: 0 0 240px;
+    margin-left: 24px;
+    background: #fafafa;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px 0;
+  }
+  .app-academics.model-result #changelist-filter h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin: 0 16px 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .app-academics.model-result #changelist-filter h3 {
+    font-size: 12px;
+    font-weight: 500;
+    color: #6b7280;
+    margin: 12px 16px 6px;
+  }
+  .app-academics.model-result #changelist-filter ul { margin: 0 0 8px; padding: 0 16px; }
+  .app-academics.model-result #changelist-filter li { margin: 2px 0; }
+  .app-academics.model-result #changelist-filter a {
+    display: block;
+    padding: 6px 8px;
+    border-radius: 4px;
+    color: #374151;
+    text-decoration: none;
+  }
+  .app-academics.model-result #changelist-filter a:hover { background: #f3f4f6; }
+  .app-academics.model-result #changelist-filter li.selected a {
+    background: #ccfbf1;
+    color: #0f766e;
+    font-weight: 500;
+  }
+
+  /* Add Result button (hidden for Lecturer via object-tools) */
+  .app-academics.model-result .object-tools a.addlink {
+    padding: 8px 14px;
+    font-size: 14px;
+    border-radius: 6px;
+    background: #0d9488;
+    color: #fff !important;
+    border: none;
+  }
+  .app-academics.model-result .object-tools a.addlink:hover { background: #0f766e; }
+
+  /* Pagination */
+  .app-academics.model-result #changelist .paginator { padding: 14px 0; font-size: 14px; }
+
+  /* Lecturer view-only: hide bulk actions and action checkbox column */
+  .app-academics.model-result.lecturer-view-results #changelist-form .actions { display: none !important; }
+  .app-academics.model-result.lecturer-view-results thead th.action-checkbox-column,
+  .app-academics.model-result.lecturer-view-results tbody td.action-checkbox { display: none !important; }
+
+  /* Lecturer View results: remove sidebar and all admin chrome (Add Result, object-tools, etc.) */
+  body.lecturer-view-results #nav-sidebar,
+  body.lecturer-no-sidebar #nav-sidebar { display: none !important; visibility: hidden !important; width: 0 !important; min-width: 0 !important; overflow: hidden !important; position: absolute !important; left: -9999px !important; }
+  body.lecturer-view-results #main,
+  body.lecturer-no-sidebar #main { margin-left: 0 !important; max-width: none !important; }
+  body.lecturer-view-results .object-tools,
+  body.lecturer-view-results #content-main .object-tools { display: none !important; }
+  body.lecturer-view-results #changelist .xfull .object-tools { display: none !important; }
+
+  /* Results Hub: hide default changelist actions (bulk dropdown) when showing hub table */
+  .show-results-hub #changelist-form .actions { display: none !important; }
+</style>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+{% if show_lecturer_ui or is_examiner %}
+<script>
+(function() {
+  function removeSidebarAndChrome() {
+    var sidebar = document.getElementById('nav-sidebar');
+    if (sidebar) { sidebar.remove(); }
+    var main = document.getElementById('main');
+    if (main) { main.style.marginLeft = '0'; main.style.maxWidth = 'none'; }
+    document.querySelectorAll('.object-tools').forEach(function(el) { el.remove(); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', removeSidebarAndChrome);
+  } else {
+    removeSidebarAndChrome();
+  }
+  setTimeout(removeSidebarAndChrome, 50);
+  setTimeout(removeSidebarAndChrome, 300);
+})();
+</script>
+{% endif %}
+{% endblock %}
+
+{% block breadcrumbs %}
+{% if show_lecturer_ui or is_examiner %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; <a href="{% url 'admin:index' %}">Lecturer</a>
+  &rsaquo; View results
+</div>
+{% else %}
+{{ block.super }}
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="result-changelist-wrapper {% if show_results_hub %}show-results-hub{% endif %}">
+  {% if scope_info and scope_info.is_scoped and not show_lecturer_ui and not is_examiner %}
+  <div class="result-lecturer-banner" role="status">
+    <strong>Viewing: {{ scope_info.scope_label }}</strong>
+    <span class="result-lecturer-note">
+      Only results in your {{ scope_info.scope_type }} are shown. Approve/reject and edits on this page are scoped to your {{ scope_info.scope_type }}.
+    </span>
+  </div>
+  {% endif %}
+  {% if show_lecturer_ui or is_examiner %}
+  {% include "admin/lecturer_nav.html" with current_page="result" %}
+  <div class="result-lecturer-banner" role="status">
+    <strong>View results — your assigned courses only</strong>
+    <span class="result-lecturer-note">Results for students in your assigned courses. View only. Data below is scoped to you.</span>
+  </div>
+  {% endif %}
+  {% if show_results_hub %}
+  <div id="content-main">
+    {% if not show_lecturer_ui and not is_examiner %}
+    <ul class="object-tools">
+      <li><a href="{% url 'admin:academics_result_student_summary' %}" style="background:#6366f1;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;font-size:14px;">View student summary</a></li>
+      <li><a href="{% url 'admin:academics_resultuploadbatch_changelist' %}" style="background:#d97706;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;font-size:14px;">Approve upload batches</a></li>
+      <li><a href="{% url 'admin:academics_result_upload_results' %}" class="addlink">Upload results</a></li>
+    </ul>
+    {% endif %}
+    {% include "admin/academics/result/results_hub_table.html" %}
+  </div>
+  {% else %}
+  {{ block.super }}
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block object-tools %}
+  {% if show_lecturer_ui or is_examiner %}
+    {# No Add Result button or object-tools for lecturer — view only #}
+  {% else %}
+    {{ block.super }}
+  {% endif %}
+{% endblock %}
+
+{% block object-tools-items %}
+  {% if not show_lecturer_ui and not is_examiner %}
+  <li>
+    <a href="{% url 'admin:academics_result_student_summary' %}" style="background:#6366f1;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;font-size:14px;">View student summary</a>
+  </li>
+  <li>
+    <a href="{% url 'admin:academics_resultuploadbatch_changelist' %}" style="background:#d97706;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;font-size:14px;">Approve upload batches</a>
+  </li>
+  <li>
+    <a href="{% url 'admin:academics_result_upload_results' %}" class="addlink">Upload results</a>
+  </li>
+  {% endif %}
+{% endblock %}
+
+{% block result_list %}
+  {% if show_results_hub %}
+    {% include "admin/academics/result/results_hub_table.html" %}
+  {% else %}
+    {{ block.super }}
+  {% endif %}
+{% endblock %}

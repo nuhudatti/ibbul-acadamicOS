@@ -1,0 +1,223 @@
+{% extends "admin/base_site.html" %}
+{% load static tz %}
+
+{% block extrastyle %}
+<style>
+    .al-wrap { max-width: 1600px; }
+    .al-scope-banner {
+        background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+        border: 1px solid #bbf7d0;
+        border-radius: 12px;
+        padding: 18px 22px;
+        margin: 10px 0 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .al-scope-banner strong { color: #166534; font-weight: 700; font-size: 1rem; display: block; }
+    .al-scope-note { display: block; font-size: 13px; color: #15803d; margin-top: 6px; line-height: 1.5; }
+    .al-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .al-search { flex: 1; min-width: 260px; }
+    .al-search input { width: 100%; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 14px; }
+    .al-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .al-filters select, .al-filters input[type="text"] { padding: 6px 10px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 13px; }
+    .al-filters .btn-link { background: none; border: none; color: #6b7280; cursor: pointer; text-decoration: underline; font-size: 13px; }
+    .al-filters .btn-link:hover { color: #111; }
+    .al-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .al-stat { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; }
+    .al-stat-num { font-size: 1.35rem; font-weight: 700; line-height: 1.2; }
+    .al-stat-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .al-stat-success .al-stat-num { color: #059669; }
+    .al-stat-warning .al-stat-num { color: #d97706; }
+    .al-stat-danger .al-stat-num { color: #dc2626; }
+    .al-stat-muted .al-stat-num { color: #4b5563; }
+    .al-table-wrap { overflow-x: auto; margin-bottom: 16px; }
+    .al-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .al-table th, .al-table td { border: 1px solid #e5e7eb; padding: 10px 12px; text-align: left; vertical-align: middle; }
+    .al-table th { background: #f9fafb; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+    .al-table tbody tr:hover { background: #f9fafb; }
+    .al-badge { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+    .al-badge-success { background: #d1fae5; color: #065f46; }
+    .al-badge-warning { background: #fef3c7; color: #92400e; }
+    .al-badge-danger { background: #fee2e2; color: #991b1b; }
+    .al-badge-muted { background: #e5e7eb; color: #4b5563; }
+    .al-export { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .al-export a { padding: 6px 12px; font-size: 13px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; color: #111; text-decoration: none; }
+    .al-export a:hover { background: #f3f4f6; }
+    .al-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+    .al-pagination a, .al-pagination span { padding: 6px 10px; font-size: 13px; }
+    .empty-state { text-align: center; padding: 40px 20px; color: #6b7280; }
+    .text-muted { color: #9ca3af; }
+    .al-note { color: #6b7280; margin-bottom: 16px; font-size: 13px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="al-wrap module">
+    <h1 style="margin-bottom: 8px;">{{ title|default:"Audit logs" }}</h1>
+    {% if scope_info and scope_info.is_scoped %}
+    <div class="al-scope-banner" role="status">
+        <strong>Viewing: {{ scope_info.scope_label }}</strong>
+        <span class="al-scope-note">
+            Only audit logs in your {{ scope_info.scope_type }} are shown. Export and stats are limited to this scope. Logs are read-only and immutable.
+        </span>
+    </div>
+    {% endif %}
+    <p class="al-note">Read-only security and compliance log. <strong>All result activities are audited:</strong> upload (batch &amp; API), single/course-batch approve &amp; reject, result create/update/delete, manual entry, import report download. Logs are immutable and ordered newest first. Export respects current filters. Only Super Admin can delete or archive logs from the standard admin if needed.</p>
+
+    {% if messages %}
+    <ul class="messagelist">
+        {% for message in messages %}
+        <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if stats %}
+    <div class="al-stats">
+        <div class="al-stat al-stat-muted"><span class="al-stat-num">{{ stats.total }}</span><div class="al-stat-label">Total logs</div></div>
+        <div class="al-stat al-stat-success"><span class="al-stat-num">{{ stats.logins_today }}</span><div class="al-stat-label">Logins today</div></div>
+        <div class="al-stat al-stat-danger"><span class="al-stat-num">{{ stats.failed_logins }}</span><div class="al-stat-label">Failed logins</div></div>
+        <div class="al-stat al-stat-warning"><span class="al-stat-num">{{ stats.admin_actions }}</span><div class="al-stat-label">Users / Admin</div></div>
+        <div class="al-stat al-stat-warning"><span class="al-stat-num">{{ stats.result_actions|default:0 }}</span><div class="al-stat-label">Result actions</div></div>
+        <div class="al-stat al-stat-muted"><span class="al-stat-num">{{ stats.course_actions|default:0 }}</span><div class="al-stat-label">Courses / Assignments</div></div>
+    </div>
+    {% endif %}
+
+    <form id="al-filter-form" method="get" action="{% url 'admin_audit_logs' %}" class="al-toolbar">
+        <div class="al-search">
+            <input type="search" name="search" value="{{ filters.search|default:'' }}" placeholder="Search by reg number, email, username, or action…" aria-label="Search audit logs" id="al-search-input">
+        </div>
+        <button type="submit" class="button">Search</button>
+    </form>
+
+    <form id="al-filter-form-full" method="get" action="{% url 'admin_audit_logs' %}">
+        <input type="hidden" name="search" value="{{ filters.search|default:'' }}" id="al-search-hidden">
+        <div class="al-filters">
+            <label for="al-action">Action:</label>
+            <select name="action" id="al-action">
+                <option value="">All</option>
+                {% for value, label in action_choices %}
+                <option value="{{ value }}" {% if filters.action == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <label for="al-role">Actor:</label>
+            <select name="role" id="al-role">
+                {% for value, label in role_choices %}
+                <option value="{{ value }}" {% if filters.role == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <label for="al-date-range">Date range:</label>
+            <select name="date_range" id="al-date-range">
+                <option value="">All</option>
+                <option value="today" {% if filters.date_range == 'today' %}selected{% endif %}>Today</option>
+                <option value="7d" {% if filters.date_range == '7d' %}selected{% endif %}>Last 7 days</option>
+                <option value="30d" {% if filters.date_range == '30d' %}selected{% endif %}>Last 30 days</option>
+            </select>
+            <label for="al-date-from">From:</label>
+            <input type="date" name="date_from" id="al-date-from" value="{{ filters.date_from|default:'' }}" placeholder="YYYY-MM-DD">
+            <label for="al-date-to">To:</label>
+            <input type="date" name="date_to" id="al-date-to" value="{{ filters.date_to|default:'' }}" placeholder="YYYY-MM-DD">
+            <label for="al-ip">IP:</label>
+            <input type="text" name="ip" id="al-ip" value="{{ filters.ip|default:'' }}" placeholder="IP address" style="width: 120px;">
+            <label for="al-page-size">Per page:</label>
+            <select name="page_size" id="al-page-size">
+                {% for n in page_sizes %}
+                <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="button">Apply</button>
+            <a href="{% url 'admin_audit_logs' %}" class="btn-link">Clear filters</a>
+        </div>
+    </form>
+
+    <div class="al-export">
+        <span style="font-size: 13px; color: #6b7280;">Export (respects current filters):</span>
+        <a href="{% url 'admin_audit_logs_export' %}?{{ export_base }}&format=csv">CSV</a>
+        <a href="{% url 'admin_audit_logs_export' %}?{{ export_base }}&format=xlsx">Excel</a>
+        <a href="{% url 'admin_audit_logs_export' %}?{{ export_base }}&format=html">HTML (Print to PDF)</a>
+    </div>
+
+    <div class="al-table-wrap">
+        <table class="al-table">
+            <thead>
+                <tr>
+                    <th>Action</th>
+                    <th>Actor</th>
+                    <th>Target identifier</th>
+                    <th>IP address</th>
+                    <th>Device / Browser</th>
+                    <th>Timestamp</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in audit_page %}
+                <tr>
+                    <td>
+                        {% if log.action == 'LOGIN_SUCCESS' or log.action == 'RESULT_SINGLE_APPROVED' or log.action == 'RESULT_BATCH_APPROVED' or log.action == 'RESULT_CREATED' or log.action == 'USER_CREATED' or log.action == 'COURSE_CREATED' or log.action == 'COURSE_ASSIGNMENT_CREATED' %}
+                        <span class="al-badge al-badge-success">{{ log.get_action_display }}</span>
+                        {% elif log.action == 'LOGIN_FAILED' or log.action == 'ADMIN_PASSWORD_RESET' or log.action == 'ADMIN_ACTIVATE_DEACTIVATE' or log.action == 'RESULT_SINGLE_REJECTED' or log.action == 'RESULT_BATCH_REJECTED' or log.action == 'RESULT_DELETED' or log.action == 'COURSE_DELETED' or log.action == 'COURSE_ASSIGNMENT_DELETED' %}
+                        <span class="al-badge al-badge-danger">{{ log.get_action_display }}</span>
+                        {% elif log.action == 'ADMIN_ACTION' or log.action == 'ADMIN_USER_IMPORT' or log.action == 'USER_UPDATED' or log.action == 'COURSE_UPDATED' or log.action == 'COURSE_ASSIGNMENT_UPDATED' or log.action == 'RESULT_UPLOAD_STARTED' or log.action == 'RESULT_UPLOAD_COMPLETED' or log.action == 'RESULT_MANUAL_ENTRY' or log.action == 'RESULT_IMPORT_REPORT_DOWNLOAD' or log.action == 'RESULT_UPDATED' %}
+                        <span class="al-badge al-badge-warning">{{ log.get_action_display }}</span>
+                        {% else %}
+                        <span class="al-badge al-badge-muted">{{ log.get_action_display }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{% if log.user %}{{ log.user.get_role_display }}{% else %}<span class="text-muted">System</span>{% endif %}</td>
+                    <td>{{ log.identifier|default:"—" }}</td>
+                    <td>{{ log.ip_address|default:"—" }}</td>
+                    <td title="{{ log.user_agent|default:'' }}">{{ log.user_agent|truncatechars:50|default:"—" }}</td>
+                    <td>{{ log.created_at|localtime|date:"Y-m-d H:i:s T" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" class="empty-state">No audit logs match the current filters.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="al-pagination">
+        {% if audit_page.has_previous %}
+        <a href="?{{ query_no_page }}{% if query_no_page %}&{% endif %}page={{ audit_page.previous_page_number }}">← Previous</a>
+        {% endif %}
+        <span>Page {{ audit_page.number }} of {{ audit_page.paginator.num_pages }} ({{ audit_page.paginator.count }} total)</span>
+        {% if audit_page.has_next %}
+        <a href="?{{ query_no_page }}{% if query_no_page %}&{% endif %}page={{ audit_page.next_page_number }}">Next →</a>
+        {% endif %}
+    </div>
+
+    <div style="margin-top: 24px;">
+        <a href="{% url 'admin_users_accounts' %}" style="color: #10b981; text-decoration: none;">← Users / Accounts</a>
+        &nbsp;|&nbsp;
+        <a href="{% url 'admin:index' %}" style="color: #10b981; text-decoration: none;">Back to Admin</a>
+    </div>
+</div>
+
+<script>
+(function() {
+    var searchInput = document.getElementById('al-search-input');
+    var searchHidden = document.getElementById('al-search-hidden');
+    var filterForm = document.getElementById('al-filter-form');
+    var filterFormFull = document.getElementById('al-filter-form-full');
+    // Before any submit of the full form, sync search box so filters keep the current search term
+    if (filterFormFull && searchInput && searchHidden) {
+        filterFormFull.addEventListener('submit', function() {
+            searchHidden.value = searchInput.value.trim();
+        });
+    }
+    // Search runs only on Enter or Search button click – no auto-submit while typing
+    if (filterForm) {
+        filterForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (searchHidden) searchHidden.value = searchInput ? searchInput.value.trim() : '';
+            filterFormFull.submit();
+        });
+    }
+    document.getElementById('al-action') && document.getElementById('al-action').addEventListener('change', function() { filterFormFull.submit(); });
+    document.getElementById('al-role') && document.getElementById('al-role').addEventListener('change', function() { filterFormFull.submit(); });
+    document.getElementById('al-date-range') && document.getElementById('al-date-range').addEventListener('change', function() { filterFormFull.submit(); });
+    document.getElementById('al-page-size') && document.getElementById('al-page-size').addEventListener('change', function() { filterFormFull.submit(); });
+    // Keep focus in search box after load so you can refine without clicking back
+    if (searchInput && searchInput.value) searchInput.focus();
+})();
+</script>
+{% endblock %}

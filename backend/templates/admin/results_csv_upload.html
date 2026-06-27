@@ -1,0 +1,27 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+    <h1>Upload Results CSV</h1>
+    
+    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+        <h3>CSV Format:</h3>
+        <code style="display: block; padding: 10px; background: white; border-radius: 4px;">
+            matric_number, course_code, course_title, credit_unit, score, grade, semester, level
+        </code>
+        <p style="margin-top: 10px; color: #666;">
+            Example: U22/FNS/CSC/0001, CSC301, .Net Programming, 3, 75, A, FIRST, 300
+        </p>
+    </div>
+    
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div style="margin-bottom: 20px;">
+            {{ form.as_p }}
+        </div>
+        <button type="submit" style="background: #417690; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+            Upload CSV
+        </button>
+        <a href=".." style="margin-left: 10px; padding: 10px 20px; display: inline-block;">Cancel</a>
+    </form>
+</div>
+{% endblock %}

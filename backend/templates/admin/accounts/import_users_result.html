@@ -1,0 +1,74 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+<style>
+    .result-container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .result-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
+    .result-table th, .result-table td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; }
+    .result-table th { background: #f9fafb; font-weight: 600; }
+    .result-table code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+    .errors { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 15px; margin-top: 20px; color: #991b1b; font-size: 13px; }
+    .success-msg { color: #059669; font-weight: 500; margin-bottom: 15px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="result-container">
+    <h1 style="margin-bottom: 20px; color: #111827;">{{ title|default:"Import result" }}</h1>
+
+    {% if created %}
+    <p class="success-msg">{{ created|length }} user(s) created. Distribute the temporary passwords securely.</p>
+    <table class="result-table">
+        <thead>
+            <tr>
+                <th>Reg number / Email</th>
+                <th>Full name</th>
+                <th>Role</th>
+                <th>Temporary password</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in created %}
+            <tr>
+                <td><code>{{ item.reg_number }}</code></td>
+                <td>{{ item.full_name }}</td>
+                <td>{{ item.role }}</td>
+                <td><code>{{ item.temp_password }}</code></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p style="margin-top: 15px; font-size: 12px; color: #6b7280;">Users must change this password on first login.</p>
+    {% if export_id %}
+    <p style="margin-top: 12px;">
+        <a href="{% url 'admin_temp_passwords_export' export_id %}" class="button" style="display: inline-block; padding: 8px 16px; background: #059669; color: white; text-decoration: none; border-radius: 6px; font-weight: 500;">Download one-time CSV (reg_number → temporary_password)</a>
+        <span style="font-size: 12px; color: #6b7280;"> — Expires in {{ export_ttl_minutes }} minutes; one download only. Plaintext is deleted after download.</span>
+    </p>
+    {% endif %}
+    {% endif %}
+
+    {% if errors %}
+    <div class="errors">
+        <strong>Errors ({{ errors|length }}):</strong>
+        <ul style="margin: 10px 0 0 20px;">
+            {% for err in errors %}
+            <li>{{ err }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if not created and not errors %}
+    <p>No users were created. Check your file format and try again.</p>
+    {% endif %}
+
+    <div style="margin-top: 25px;">
+        <a href="{% url 'admin_import_users' %}" style="color: #10b981; text-decoration: none;">Import more users</a>
+        &nbsp;|&nbsp;
+        <a href="{% url 'admin_users_accounts' %}" style="color: #10b981; text-decoration: none;">Users / Accounts</a>
+        &nbsp;|&nbsp;
+        <a href="{% url 'admin:index' %}" style="color: #10b981; text-decoration: none;">Back to Admin</a>
+    </div>
+</div>
+{% endblock %}

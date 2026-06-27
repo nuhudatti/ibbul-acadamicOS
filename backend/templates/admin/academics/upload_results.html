@@ -1,0 +1,858 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<style>
+  /* ========== Upload Results — World-class, product-grade UI ========== */
+  .ur-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding-bottom: 56px;
+    min-height: 60vh;
+  }
+  .ur-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 20px;
+    color: #0d9488;
+    font-weight: 600;
+    font-size: 14px;
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .ur-back:hover { color: #0f766e; }
+  .ur-header {
+    margin-bottom: 28px;
+  }
+  .ur-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px 0;
+  }
+  .ur-desc {
+    font-size: 15px;
+    color: #64748b;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  /* Last batch card */
+  .ur-last-batch {
+    background: #f0fdf4;
+    border: 1px solid #a7f3d0;
+    border-radius: 12px;
+    padding: 18px 24px;
+    margin-bottom: 28px;
+  }
+  .ur-last-batch h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #065f46;
+    margin: 0 0 10px 0;
+  }
+  .ur-last-batch p {
+    margin: 4px 0;
+    font-size: 14px;
+    color: #047857;
+  }
+  .ur-last-batch .ur-upload-summary {
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .ur-last-batch .ur-upload-summary a {
+    color: #047857;
+    font-weight: 600;
+    text-decoration: underline;
+  }
+  .ur-last-batch .ur-upload-summary a:hover { color: #065f46; }
+  .ur-last-batch .ur-upload-meta {
+    font-size: 13px;
+    color: #065f46;
+    margin-top: 8px;
+  }
+  .ur-last-batch .ur-report-hint {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #047857;
+    line-height: 1.5;
+  }
+  .ur-last-batch .ur-dl-report {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 10px 18px;
+    background: #059669;
+    color: #fff;
+    font-weight: 600;
+    font-size: 14px;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .ur-last-batch .ur-dl-report:hover { background: #047857; color: #fff; }
+  /* When there are errors, card is slightly amber to draw attention to the report */
+  .ur-last-batch.has-errors {
+    background: #fffbeb;
+    border-color: #fde68a;
+  }
+  .ur-last-batch.has-errors h3 { color: #92400e; }
+  .ur-last-batch.has-errors .ur-upload-summary,
+  .ur-last-batch.has-errors .ur-upload-meta,
+  .ur-last-batch.has-errors .ur-report-hint { color: #b45309; }
+  .ur-last-batch.has-errors .ur-upload-summary a { color: #b45309; }
+  .ur-last-batch.has-errors .ur-upload-summary a:hover { color: #92400e; }
+  .ur-last-batch.has-errors .ur-dl-report { background: #d97706; }
+  .ur-last-batch.has-errors .ur-dl-report:hover { background: #b45309; color: #fff; }
+
+  /* Two-column layout */
+  .ur-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  @media (max-width: 900px) {
+    .ur-grid { grid-template-columns: 1fr; }
+  }
+
+  .ur-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.06), 0 2px 4px -2px rgba(0,0,0,0.04);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+  .ur-card:hover {
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.05);
+    border-color: #cbd5e1;
+  }
+  .ur-card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .ur-card-head .ur-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+  .ur-card-head h2 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .ur-card-tag {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+    margin-top: 2px;
+  }
+
+  .ur-form-group {
+    margin-bottom: 20px;
+  }
+  .ur-form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    color: #334155;
+  }
+  .ur-input,
+  .ur-select,
+  .ur-textarea {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 14px;
+    box-sizing: border-box;
+    background: #fff;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .ur-input:focus,
+  .ur-select:focus,
+  .ur-textarea:focus {
+    outline: none;
+    border-color: #0d9488;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+  }
+  .ur-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23334155' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+    cursor: pointer;
+  }
+  /* Semester and other native selects: show dropdown and selected value clearly */
+  .ur-select-native {
+    appearance: auto;
+    -webkit-appearance: menulist;
+    -moz-appearance: menulist;
+    background-image: none;
+    padding-right: 14px;
+    min-height: 46px;
+    height: auto;
+    line-height: 1.4;
+    font-size: 15px;
+  }
+  .ur-form-group select {
+    position: relative;
+    z-index: 2;
+    min-height: 46px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .ur-card,
+  .ur-form-group {
+    overflow: visible;
+  }
+  .ur-textarea {
+    min-height: 120px;
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    resize: vertical;
+  }
+
+  /* File drop zone */
+  .ur-file-zone {
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    background: #f8fafc;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .ur-file-zone:hover {
+    border-color: #0d9488;
+    background: #f0fdf4;
+  }
+  .ur-file-zone input[type="file"] {
+    width: 100%;
+    padding: 8px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .ur-file-hint {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.5;
+  }
+  .ur-file-hint strong { color: #475569; }
+
+  /* Buttons */
+  .ur-btn {
+    display: inline-block;
+    width: 100%;
+    padding: 14px 24px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.05s;
+    margin-top: 8px;
+  }
+  .ur-btn:hover { transform: translateY(-1px); }
+  .ur-btn-primary {
+    background: #0d9488;
+    color: #fff;
+  }
+  .ur-btn-primary:hover { background: #0f766e; }
+  .ur-btn-secondary {
+    background: #334155;
+    color: #fff;
+  }
+  .ur-btn-secondary:hover { background: #1e293b; }
+
+  /* Info / rules panels */
+  .ur-panel {
+    margin-top: 20px;
+    padding: 16px 18px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.6;
+  }
+  .ur-panel strong { color: #334155; }
+  .ur-panel code {
+    background: #e2e8f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .ur-panel ul {
+    margin: 8px 0 0 0;
+    padding-left: 20px;
+  }
+  .ur-panel li { margin: 2px 0; }
+  .ur-panel-title {
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    margin-bottom: 8px;
+  }
+  .ur-same-format {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #065f46;
+    margin-bottom: 16px;
+  }
+  .ur-same-format strong { color: #047857; }
+
+  /* Section labels inside card */
+  .ur-section-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+    margin: 20px 0 12px 0;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+  }
+  .ur-section-label:first-of-type {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+  }
+
+  /* Select2 overrides */
+  .ur-card .select2-container { width: 100% !important; }
+  .ur-card .select2-container--default .select2-selection--single {
+    height: 46px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 8px 14px;
+  }
+  .ur-card .select2-container--default .select2-selection--single:focus,
+  .ur-card .select2-container--default.select2-container--focus .select2-selection--single {
+    border-color: #0d9488;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+  }
+  .ur-card .select2-container--default .select2-selection--single .select2-selection__rendered {
+    line-height: 28px;
+    padding-left: 0;
+  }
+  .ur-card .select2-container--default .select2-selection--single .select2-selection__arrow {
+    height: 44px;
+    right: 12px;
+  }
+
+  /* Messages (Django messages) */
+  .ur-messages { margin-bottom: 24px; }
+  .ur-messages ul { list-style: none; margin: 0; padding: 0; }
+  .ur-messages li {
+    padding: 14px 18px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+  .ur-messages .success { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+  .ur-messages .error { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+  .ur-messages .warning { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+  .ur-messages .info { background: #f0f9ff; border-color: #bae6fd; color: #0369a1; }
+
+  /* Breadcrumb */
+  .ur-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #64748b;
+  }
+  .ur-breadcrumb a { color: #0d9488; text-decoration: none; font-weight: 500; }
+  .ur-breadcrumb a:hover { text-decoration: underline; }
+  .ur-breadcrumb span { color: #334155; font-weight: 600; }
+
+  /* Page header — confident, product-grade */
+  .ur-header-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .ur-header {
+    margin-bottom: 0;
+  }
+  .ur-title {
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.025em;
+    margin: 0 0 8px 0;
+    line-height: 1.2;
+  }
+  .ur-desc {
+    font-size: 15px;
+    color: #64748b;
+    margin: 0;
+    line-height: 1.55;
+    max-width: 52ch;
+  }
+  .ur-util-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    text-decoration: none;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+    flex-shrink: 0;
+  }
+  .ur-util-link:hover {
+    color: #0d9488;
+    border-color: #99f6e4;
+    background: #f0fdfa;
+  }
+
+  /* Removed: action bar with template buttons */
+
+  /* File selected display */
+  .ur-file-selected {
+    display: none;
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #065f46;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .ur-file-selected.is-visible { display: flex; }
+  .ur-file-selected .ur-clear-file {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #fff;
+    border: 1px solid #059669;
+    color: #059669;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .ur-file-selected .ur-clear-file:hover { background: #d1fae5; }
+
+  /* Sync checkbox + Insert sample */
+  .ur-inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .ur-inline-actions label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #475569;
+    cursor: pointer;
+    margin: 0;
+  }
+  .ur-inline-actions input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #0d9488;
+  }
+  .ur-btn-sm {
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #475569;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .ur-btn-sm:hover { background: #f1f5f9; color: #0d9488; }
+
+  /* Line count hint */
+  .ur-line-count {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 6px;
+  }
+
+  /* Loading state */
+  .ur-btn.is-loading {
+    pointer-events: none;
+    opacity: 0.85;
+  }
+  .ur-btn .ur-btn-text { display: inline; }
+  .ur-btn .ur-btn-loading { display: none; }
+  .ur-btn.is-loading .ur-btn-text { display: none; }
+  .ur-btn.is-loading .ur-btn-loading { display: inline; }
+
+  /* Details/summary (collapsible) */
+  .ur-details {
+    margin-top: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .ur-details summary {
+    padding: 12px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+    background: #f8fafc;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ur-details summary::-webkit-details-marker { display: none; }
+  .ur-details summary::before { content: '▶'; font-size: 10px; transition: transform 0.2s; }
+  .ur-details[open] summary::before { transform: rotate(90deg); }
+  .ur-details .ur-details-body { padding: 16px; background: #fff; font-size: 13px; color: #475569; line-height: 1.6; border-top: 1px solid #e2e8f0; }
+  .ur-details .ur-details-body a { color: #0d9488; font-weight: 600; text-decoration: none; }
+  .ur-details .ur-details-body a:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ur-page">
+  <nav class="ur-breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'admin:academics_result_changelist' %}">Results</a>
+    <span aria-hidden="true">›</span>
+    <span>Upload</span>
+  </nav>
+  <a href="{% url 'admin:academics_result_changelist' %}" class="ur-back">← Back to Results</a>
+
+  <div class="ur-header-wrap">
+    <header class="ur-header">
+      <h1 class="ur-title">Upload Results</h1>
+      <p class="ur-desc">Upload a spreadsheet for many students or enter results for one student. Same format and rules — students and courses must already exist.</p>
+    </header>
+    <a href="{% url 'admin:academics_resultuploadbatch_changelist' %}" class="ur-util-link">Manage batches →</a>
+  </div>
+
+  {% if messages %}
+  <div class="ur-messages" role="alert" aria-live="polite">
+    <ul>
+      {% for message in messages %}
+      <li class="{{ message.tags }}">{{ message }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if summaries_saved and not upload_batch %}
+  <section class="ur-last-batch ur-upload-result-card" role="status" aria-labelledby="ur-summaries-title">
+    <h3 id="ur-summaries-title">Upload result</h3>
+    <p class="ur-upload-summary"><strong>{{ summaries_saved }} summary/summaries saved.</strong> No result rows were in the file.</p>
+  </section>
+  {% endif %}
+
+  {% if upload_batch %}
+  <section class="ur-last-batch ur-upload-result-card{% if upload_batch.error_count > 0 %} has-errors{% endif %}" role="status" aria-labelledby="ur-last-batch-title">
+    <h3 id="ur-last-batch-title">Upload result</h3>
+    <p class="ur-upload-summary">
+      {% if upload_batch.error_count == 0 %}
+        <strong>All {{ upload_batch.success_count }} result(s) were saved.</strong> You can approve this batch from <a href="{% url 'admin:academics_resultuploadbatch_changelist' %}">Upload batches</a> when ready.
+      {% elif upload_batch.success_count > 0 %}
+        <strong>{{ upload_batch.success_count }} result(s) saved.</strong> {{ upload_batch.error_count }} row(s) could not be saved. {% if upload_error_summary %}{{ upload_error_summary }}{% else %}Download the error report below to see each row and how to fix it.{% endif %}
+      {% else %}
+        <strong>No result rows were saved.</strong>{% if summaries_saved %} <strong>{{ summaries_saved }} summary/summaries were saved.</strong>{% endif %} {{ upload_batch.error_count }} row(s) had errors. {% if upload_error_summary %}{{ upload_error_summary }}{% else %}Download the error report below to see each row and how to fix it.{% endif %}
+      {% endif %}
+    </p>
+    <p class="ur-upload-meta"><strong>File:</strong> {{ upload_batch.filename }} · <strong>Session:</strong> {{ upload_batch.session }} · <strong>Semester:</strong> {% if upload_batch.semester == 'FIRST' %}First{% elif upload_batch.semester == 'SECOND' %}Second{% else %}{{ upload_batch.semester }}{% endif %}</p>
+    {% if report_failed_count %}
+    <a href="{% url 'admin:academics_result_import_report' upload_batch.id %}" class="ur-dl-report">Download error report ({{ report_failed_count }} row{{ report_failed_count|pluralize }})</a>
+    <p class="ur-report-hint">Open the report in Excel or Sheets. Fix each row using the reason in the last column, then upload a new file with only the corrected rows.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <div class="ur-grid">
+    <!-- Bulk upload -->
+    <div class="ur-card" role="region" aria-labelledby="ur-bulk-title">
+      <div class="ur-card-head">
+        <span class="ur-icon" aria-hidden="true">📤</span>
+        <div>
+          <h2 id="ur-bulk-title">Bulk upload</h2>
+          <span class="ur-card-tag">Excel / CSV · IBBUL format</span>
+        </div>
+      </div>
+
+      <form method="post" enctype="multipart/form-data" id="bulkUploadForm">
+        {% csrf_token %}
+        <input type="hidden" name="file_upload" value="1">
+
+        <div class="ur-form-group">
+          <label for="id_file">Choose file</label>
+          <div class="ur-file-zone">
+            {{ file_form.file }}
+            <p class="ur-file-hint">
+              <strong>Formats:</strong> .xlsx, .xls, .csv (first sheet).<br>
+              Always re-select your file before clicking Upload to avoid sending the wrong file.
+            </p>
+            <div class="ur-file-selected" id="ur-file-selected" role="status">
+              <span id="ur-file-name">—</span>
+              <button type="button" class="ur-clear-file" id="ur-clear-file" aria-label="Clear selected file">Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ur-form-group">
+          <label for="id_session">Academic session</label>
+          {{ file_form.session }}
+        </div>
+
+        <div class="ur-form-group">
+          <label for="id_semester">Semester</label>
+          {{ file_form.semester }}
+        </div>
+
+        <button type="submit" class="ur-btn ur-btn-primary" id="bulkSubmitBtn">
+          <span class="ur-btn-text">Upload & analyze</span>
+          <span class="ur-btn-loading">Uploading…</span>
+        </button>
+
+        <div class="ur-panel">
+          <div class="ur-panel-title">Need to know</div>
+          <strong>Existing students and courses only.</strong> Add students and courses in User management and Courses first. Course titles come from your department catalogue. <strong>HOD:</strong> Only courses in your department are accepted.
+        </div>
+
+        <details class="ur-details">
+          <summary>Format reference</summary>
+          <div class="ur-details-body">
+            <strong>Required:</strong> <code>matric_number</code>, <code>course_code</code>, <code>score</code>. Optional: <code>session</code>, <code>semester</code>, <code>credit_unit</code>, <code>grade</code>, <code>level</code>, and summary columns <code>le</code>, <code>nss</code>, <code>rcu</code>, <code>ecu</code>, <code>cp</code>, <code>gpa</code>, <code>trcu</code>, <code>tecu</code>, <code>tcp</code>, <code>pcgpa</code>, <code>cgpa</code>, <code>outstanding_courses</code>, <code>remarks</code>, <code>standing</code>.
+            <p style="margin: 14px 0 0 0; padding-top: 12px; border-top: 1px solid #e2e8f0;"><strong>Need a template?</strong> <a href="{% url 'admin:academics_result_download_template' %}?type=minimal">Minimal CSV</a> · <a href="{% url 'admin:academics_result_download_template' %}?type=complete">Full CSV</a></p>
+          </div>
+        </details>
+      </form>
+    </div>
+
+    <!-- Manual entry (same format as bulk) -->
+    <div class="ur-card" role="region" aria-labelledby="ur-manual-title">
+      <div class="ur-card-head">
+        <span class="ur-icon" aria-hidden="true">✏️</span>
+        <div>
+          <h2 id="ur-manual-title">Manual entry</h2>
+          <span class="ur-card-tag">One student · same format as bulk</span>
+        </div>
+      </div>
+
+      <div class="ur-panel ur-same-format">
+        <strong>Same IBBUL format as bulk upload.</strong> One line per course: <strong>course code, credit unit, grade, score, remark</strong>. Course title is picked from the catalogue — <strong>student and course must already exist</strong> in the system.
+      </div>
+
+      <form method="post" id="manualEntryForm">
+        {% csrf_token %}
+        <input type="hidden" name="manual_entry" value="1">
+
+        <div class="ur-inline-actions">
+          <label>
+            <input type="checkbox" id="ur-sync-session" aria-describedby="ur-sync-hint">
+            <span>Use same session & semester as bulk</span>
+          </label>
+          <span id="ur-sync-hint" class="ur-line-count" style="margin-top:0;">(Syncs from left card)</span>
+        </div>
+
+        <div class="ur-section-label">Student</div>
+        <div class="ur-form-group">
+          <label for="student_id_select">Student ID</label>
+          <select name="student_id" id="student_id_select" class="ur-input ur-select" required>
+            <option value="">Search or select student...</option>
+            {% for student in students %}
+            <option value="{{ student.student_id }}">{{ student.student_id }} — {{ student.first_name }} {{ student.last_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="ur-form-group">
+          <label for="manual_session">Academic session</label>
+          <input type="text" name="session" id="manual_session" class="ur-input" placeholder="e.g. 2023/2024" value="2023/2024" required>
+        </div>
+
+        <div class="ur-form-group">
+          <label for="manual_semester">Semester</label>
+          <select name="semester" id="manual_semester" class="ur-select ur-select-native" required aria-describedby="manual_semester_hint" style="min-height: 46px; padding: 12px 14px; font-size: 15px;">
+            <option value="">Select semester</option>
+            <option value="FIRST">First semester</option>
+            <option value="SECOND">Second semester</option>
+          </select>
+          <span id="manual_semester_hint" class="ur-line-count" style="margin-top:4px;display:block;">Choose First or Second semester.</span>
+        </div>
+
+        <div class="ur-form-group">
+          <label for="manual_level">Level (optional)</label>
+          <input type="text" name="level" id="manual_level" class="ur-input" placeholder="e.g. 300">
+        </div>
+
+        <div class="ur-section-label">Course entries (one per line)</div>
+        <div class="ur-form-group">
+          <div class="ur-inline-actions">
+            <label for="manual_courses">Format: {{ manual_course_line_format }}</label>
+            <button type="button" class="ur-btn-sm" id="ur-insert-sample" aria-label="Insert sample course lines">Insert sample</button>
+          </div>
+          <textarea name="course_entry" id="manual_courses" class="ur-textarea" placeholder="CSC301, 3, A, 75, Excellent&#10;CSC302, 3, B, 65, Very Good&#10;CSC303, 3, A, 80" rows="6"></textarea>
+          <p class="ur-line-count" id="ur-line-count" aria-live="polite">0 lines</p>
+          <div class="ur-panel" style="margin-top: 10px;">
+            <strong>Example (one line per course):</strong><br>
+            <code>CSC301, 3, A, 75, Excellent</code><br>
+            <code>CSC302, 3, B, 65, Very Good</code><br>
+            Course title is taken from the catalogue — student and course must already exist. Summary: {{ manual_summary_format }}. Score 0–100.
+          </div>
+        </div>
+
+        <div class="ur-section-label">Summary</div>
+        <div class="ur-form-group">
+          <label for="manual_summary">Numeric summary: {{ manual_summary_format }}</label>
+          <textarea name="summary" id="manual_summary" class="ur-textarea" placeholder="e.g. 300, 5, 15, 12, 48, 4.0, 60, 55, 220, 3.8, 3.9, -, In good standing" rows="2"></textarea>
+        </div>
+
+        <button type="submit" class="ur-btn ur-btn-secondary" id="manualSubmitBtn">
+          <span class="ur-btn-text">Submit entry</span>
+          <span class="ur-btn-loading">Submitting…</span>
+        </button>
+        {% if manual_entry_has_report %}
+        <div class="ur-manual-report" style="margin-top: 16px; padding: 14px 18px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;">
+          <p style="margin: 0 0 10px 0; font-size: 14px; color: #92400e;"><strong>{{ manual_entry_failed_count }} course(s) could not be saved.</strong> Download the error report to see each line and how to fix it.</p>
+          <a href="{% url 'admin:academics_result_manual_entry_report' %}" class="ur-dl-report" style="display: inline-block; padding: 10px 18px; background: #d97706; color: #fff; font-weight: 600; font-size: 14px; border-radius: 8px; text-decoration: none;">Download error report ({{ manual_entry_failed_count }} row{{ manual_entry_failed_count|pluralize }})</a>
+        </div>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  <p class="ur-footer-note" style="margin-top: 32px; font-size: 13px; color: #94a3b8; text-align: center;">Uploaded results need approval in <a href="{% url 'admin:academics_resultuploadbatch_changelist' %}" style="color: #64748b; font-weight: 500;">Upload batches</a> before they are final.</p>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var $ = window.jQuery;
+    $('input[type="file"][name="file"]').val('');
+
+    // Select2 for student
+    $('#student_id_select').select2({
+      placeholder: 'Search or select student...',
+      allowClear: true,
+      width: '100%'
+    });
+
+    // File selected display + clear
+    var fileInput = document.querySelector('input[type="file"][name="file"]');
+    var fileSelected = document.getElementById('ur-file-selected');
+    var fileName = document.getElementById('ur-file-name');
+    var clearBtn = document.getElementById('ur-clear-file');
+    if (fileInput && fileSelected && fileName && clearBtn) {
+      function updateFileDisplay() {
+        var file = fileInput.files && fileInput.files[0];
+        if (file) {
+          fileName.textContent = 'Selected: ' + file.name;
+          fileSelected.classList.add('is-visible');
+        } else {
+          fileName.textContent = '—';
+          fileSelected.classList.remove('is-visible');
+        }
+      }
+      fileInput.addEventListener('change', updateFileDisplay);
+      clearBtn.addEventListener('click', function() {
+        fileInput.value = '';
+        updateFileDisplay();
+      });
+      updateFileDisplay();
+    }
+
+    // Sync session & semester from bulk to manual
+    var syncCheck = document.getElementById('ur-sync-session');
+    var bulkSession = document.getElementById('id_session');
+    var bulkSemester = document.getElementById('id_semester');
+    var manualSession = document.getElementById('manual_session');
+    var manualSemester = document.getElementById('manual_semester');
+    function syncToManual() {
+      if (syncCheck && syncCheck.checked && bulkSession && bulkSemester && manualSession && manualSemester) {
+        manualSession.value = bulkSession.value || '';
+        var bulkVal = bulkSemester.options[bulkSemester.selectedIndex] ? bulkSemester.options[bulkSemester.selectedIndex].value : '';
+        manualSemester.value = bulkVal;
+        for (var i = 0; i < manualSemester.options.length; i++) {
+          if (manualSemester.options[i].value === bulkVal) {
+            manualSemester.selectedIndex = i;
+            break;
+          }
+        }
+      }
+    }
+    if (syncCheck) syncCheck.addEventListener('change', syncToManual);
+    if (bulkSession) bulkSession.addEventListener('change', syncToManual);
+    if (bulkSemester) bulkSemester.addEventListener('change', syncToManual);
+
+    // Insert sample courses
+    var insertBtn = document.getElementById('ur-insert-sample');
+    var coursesTa = document.getElementById('manual_courses');
+    if (insertBtn && coursesTa) {
+      var sampleLines = 'CSC301, 3, A, 75, Excellent\nCSC302, 3, B, 65, Very Good\nCSC303, 3, A, 80, Excellent';
+      insertBtn.addEventListener('click', function() {
+        coursesTa.value = coursesTa.value ? coursesTa.value + '\n' + sampleLines : sampleLines;
+        coursesTa.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
+
+    // Line count for course textarea
+    var lineCountEl = document.getElementById('ur-line-count');
+    if (coursesTa && lineCountEl) {
+      function updateLineCount() {
+        var text = coursesTa.value.trim();
+        var lines = text ? text.split(/\n/).filter(function(l) { return l.trim(); }) : [];
+        lineCountEl.textContent = lines.length + ' line' + (lines.length !== 1 ? 's' : '');
+      }
+      coursesTa.addEventListener('input', updateLineCount);
+      coursesTa.addEventListener('change', updateLineCount);
+      updateLineCount();
+    }
+
+    // Loading state on submit
+    var bulkForm = document.getElementById('bulkUploadForm');
+    var bulkSubmitBtn = document.getElementById('bulkSubmitBtn');
+    if (bulkForm && bulkSubmitBtn) {
+      bulkForm.addEventListener('submit', function() {
+        bulkSubmitBtn.classList.add('is-loading');
+      });
+    }
+    var manualForm = document.getElementById('manualEntryForm');
+    var manualSubmitBtn = document.getElementById('manualSubmitBtn');
+    if (manualForm && manualSubmitBtn) {
+      manualForm.addEventListener('submit', function() {
+        manualSubmitBtn.classList.add('is-loading');
+      });
+    }
+  });
+</script>
+{% endblock %}

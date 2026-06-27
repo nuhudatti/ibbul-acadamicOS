@@ -1,0 +1,18 @@
+[
+  {
+    "hod_email": "hod.csc@ibbul.edu.ng",
+    "hod_name": "HOD CSC",
+    "role": "Department Admin (HOD)",
+    "faculty": "FNS - Faculty of Natural Sciences",
+    "department_code": "CSC",
+    "department_name": "Computer Science"
+  },
+  {
+    "hod_email": "hod.mth@ibbul.edu.ng",
+    "hod_name": "HOD MTH",
+    "role": "Department Admin (HOD)",
+    "faculty": "FNS - Faculty of Natural Sciences",
+    "department_code": "MTH",
+    "department_name": "Mathematics"
+  }
+]

@@ -1,0 +1,4 @@
+hod_email,hod_name,role,faculty_code,faculty_name,department_code,department_name
+hod.csc@ibbul.edu.ng,HOD CSC,Department Admin (HOD),FNS,Faculty of Natural Sciences,CSC,Computer Science
+hod.mth@ibbul.edu.ng,HOD MTH,Department Admin (HOD),FNS,Faculty of Natural Sciences,MTH,Mathematics
+hod.eee@ibbul.edu.ng,HOD EEE,Department Admin (HOD),FES,Faculty of Engineering & Tech,EEE,Electrical/Electronic Engineering

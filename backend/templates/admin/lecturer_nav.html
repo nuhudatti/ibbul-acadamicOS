@@ -1,0 +1,49 @@
+{% load i18n %}
+{# World-class lecturer top nav: Home | View results | View my courses. No sidebar. #}
+<nav class="lecturer-topnav" aria-label="{% translate 'Lecturer navigation' %}">
+  <div class="lecturer-topnav-inner">
+    <a href="{% url 'admin:index' %}" class="lecturer-topnav-link {% if current_page == 'home' %}lecturer-topnav-link--active{% endif %}">Home</a>
+    <a href="{% url 'admin:academics_result_changelist' %}" class="lecturer-topnav-link {% if current_page == 'result' %}lecturer-topnav-link--active{% endif %}">View results</a>
+    <a href="{% url 'admin:academics_course_changelist' %}" class="lecturer-topnav-link {% if current_page == 'course' %}lecturer-topnav-link--active{% endif %}">View my courses</a>
+  </div>
+</nav>
+<style>
+  .lecturer-topnav {
+    background: linear-gradient(180deg, #fafbfc 0%, #f1f5f9 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 20px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .lecturer-topnav-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .lecturer-topnav-link {
+    display: inline-block;
+    padding: 10px 22px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #64748b;
+    text-decoration: none;
+    border-radius: 10px;
+    transition: color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  }
+  .lecturer-topnav-link:hover {
+    color: #0f766e;
+    background: rgba(13, 148, 136, 0.08);
+  }
+  .lecturer-topnav-link--active {
+    color: #fff;
+    background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+    box-shadow: 0 2px 8px rgba(13, 148, 136, 0.3);
+  }
+  .lecturer-topnav-link--active:hover {
+    color: #fff;
+    background: linear-gradient(135deg, #0f766e 0%, #115e59 100%);
+    box-shadow: 0 2px 12px rgba(13, 148, 136, 0.35);
+  }
+</style>

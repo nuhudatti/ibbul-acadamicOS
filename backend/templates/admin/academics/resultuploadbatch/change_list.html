@@ -1,0 +1,471 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_list %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  /* ========== Result Upload Batches — Enterprise UI ========== */
+  .app-academics.model-resultuploadbatch #content-main {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ——— Page header & stats ——— */
+  .app-academics.model-resultuploadbatch .rub-page-header {
+    margin-bottom: 24px;
+  }
+  .app-academics.model-resultuploadbatch .rub-page-header h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px 0;
+  }
+  .app-academics.model-resultuploadbatch .rub-page-desc {
+    font-size: 15px;
+    color: #64748b;
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+  }
+  .app-academics.model-resultuploadbatch .rub-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .app-academics.model-resultuploadbatch .rub-stat-card {
+    flex: 0 0 auto;
+    min-width: 140px;
+    padding: 16px 20px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: transform 0.12s ease, box-shadow 0.2s ease;
+  }
+  .app-academics.model-resultuploadbatch .rub-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  .app-academics.model-resultuploadbatch .rub-stat-card .rub-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.2;
+  }
+  .app-academics.model-resultuploadbatch .rub-stat-card .rub-stat-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    margin-top: 4px;
+  }
+  .app-academics.model-resultuploadbatch .rub-stat-card.rub-stat-pending {
+    border-color: #fcd34d;
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  }
+  .app-academics.model-resultuploadbatch .rub-stat-card.rub-stat-pending .rub-stat-value { color: #b45309; }
+  .app-academics.model-resultuploadbatch .rub-stat-card.rub-stat-approved {
+    border-color: #a7f3d0;
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  }
+  .app-academics.model-resultuploadbatch .rub-stat-card.rub-stat-approved .rub-stat-value { color: #047857; }
+  .app-academics.model-resultuploadbatch .rub-stat-card.rub-stat-rejected {
+    border-color: #fecaca;
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  }
+  .app-academics.model-resultuploadbatch .rub-stat-card.rub-stat-rejected .rub-stat-value { color: #b91c1c; }
+
+  /* ——— Scope banner ——— */
+  .app-academics.model-resultuploadbatch .rub-scope-banner {
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 1px solid #a7f3d0;
+    border-radius: 12px;
+    padding: 18px 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .app-academics.model-resultuploadbatch .rub-scope-banner strong {
+    color: #065f46;
+    font-weight: 700;
+    font-size: 15px;
+    display: block;
+  }
+  .app-academics.model-resultuploadbatch .rub-scope-banner .rub-scope-note {
+    display: block;
+    font-size: 13px;
+    color: #047857;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  /* ——— Toolbar (search) ——— */
+  .app-academics.model-resultuploadbatch #changelist #toolbar {
+    padding: 16px 0;
+    margin-bottom: 20px;
+    border: none;
+    background: transparent;
+  }
+  .app-academics.model-resultuploadbatch #changelist #toolbar form#changelist-search {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+  }
+  .app-academics.model-resultuploadbatch #changelist #toolbar form#changelist-search #searchbar {
+    min-height: 48px;
+    height: 48px;
+    padding: 12px 18px;
+    font-size: 15px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    min-width: 280px;
+    max-width: 420px;
+  }
+  .app-academics.model-resultuploadbatch #changelist #toolbar form#changelist-search #searchbar:focus {
+    outline: none;
+    border-color: #0d9488;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+  }
+  .app-academics.model-resultuploadbatch #changelist #toolbar form#changelist-search input[type="submit"] {
+    min-height: 48px;
+    padding: 12px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 10px;
+    border: none;
+    background: #0d9488;
+    color: #fff;
+    cursor: pointer;
+  }
+  .app-academics.model-resultuploadbatch #changelist #toolbar form#changelist-search input[type="submit"]:hover {
+    background: #0f766e;
+  }
+
+  /* ——— Filters sidebar ——— */
+  .app-academics.model-resultuploadbatch #changelist-filter {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px 0;
+    margin-left: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .app-academics.model-resultuploadbatch #changelist-filter h2 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0 20px 12px;
+    margin: 0 0 12px 0;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .app-academics.model-resultuploadbatch #changelist-filter h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    padding: 12px 20px 6px;
+    margin: 0;
+  }
+  .app-academics.model-resultuploadbatch #changelist-filter ul {
+    margin: 0 0 16px 0;
+    padding: 0 20px;
+    list-style: none;
+  }
+  .app-academics.model-resultuploadbatch #changelist-filter li {
+    margin: 2px 0;
+  }
+  .app-academics.model-resultuploadbatch #changelist-filter a {
+    display: block;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #475569;
+    text-decoration: none;
+  }
+  .app-academics.model-resultuploadbatch #changelist-filter a:hover {
+    background: #f1f5f9;
+    color: #0d9488;
+  }
+  .app-academics.model-resultuploadbatch #changelist-filter li.selected a {
+    background: #f0fdf4;
+    color: #047857;
+    font-weight: 600;
+  }
+
+  /* ——— Results table card ——— */
+  .app-academics.model-resultuploadbatch #changelist .results {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    overflow-x: auto;
+    overflow-y: visible;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.06), 0 2px 4px -2px rgba(0,0,0,0.04);
+    -webkit-overflow-scrolling: touch;
+  }
+  .app-academics.model-resultuploadbatch #changelist .results table {
+    width: 100%;
+    min-width: 960px;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .app-academics.model-resultuploadbatch #changelist .results thead th {
+    background: #f8fafc;
+    color: #334155;
+    padding: 16px 20px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: none;
+    border-bottom: 2px solid #e2e8f0;
+    white-space: nowrap;
+  }
+  .app-academics.model-resultuploadbatch #changelist .results tbody td {
+    padding: 18px 20px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+    line-height: 1.45;
+  }
+  .app-academics.model-resultuploadbatch #changelist .results tbody tr:hover {
+    background: #f8fafc;
+  }
+  .app-academics.model-resultuploadbatch #changelist .results tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Status pills */
+  .app-academics.model-resultuploadbatch .rub-pill {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .app-academics.model-resultuploadbatch .rub-pill-pending {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .app-academics.model-resultuploadbatch .rub-pill-approved {
+    background: #d1fae5;
+    color: #065f46;
+  }
+  .app-academics.model-resultuploadbatch .rub-pill-rejected {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+  .app-academics.model-resultuploadbatch .rub-pill-partial {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #f59e0b;
+  }
+  .app-academics.model-resultuploadbatch .rub-meta-approved {
+    color: #059669;
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .app-academics.model-resultuploadbatch .rub-meta-rejected {
+    color: #dc2626;
+    font-weight: 500;
+    font-size: 13px;
+  }
+
+  /* Action buttons */
+  .app-academics.model-resultuploadbatch .rub-actions-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 160px;
+  }
+  .app-academics.model-resultuploadbatch .rub-actions-cell .rub-btn {
+    display: inline-block;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.05s, box-shadow 0.15s;
+  }
+  .app-academics.model-resultuploadbatch .rub-actions-cell .rub-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-approve {
+    background: #059669;
+    color: #fff;
+    border: none;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-approve:hover {
+    background: #047857;
+    color: #fff;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-reject {
+    background: #dc2626;
+    color: #fff;
+    border: none;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-reject:hover {
+    background: #b91c1c;
+    color: #fff;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-report {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-report:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-unapprove {
+    background: #f59e0b;
+    color: #fff;
+    border: none;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-unapprove:hover {
+    background: #d97706;
+    color: #fff;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-reopen {
+    background: #0d9488;
+    color: #fff;
+    border: none;
+  }
+  .app-academics.model-resultuploadbatch .rub-btn-reopen:hover {
+    background: #0f766e;
+    color: #fff;
+  }
+  .app-academics.model-resultuploadbatch .rub-actions-cell.rub-actions-approved {
+    align-items: center;
+  }
+  .app-academics.model-resultuploadbatch .rub-actions-cell .rub-meta-approved,
+  .app-academics.model-resultuploadbatch .rub-actions-cell .rub-meta-rejected {
+    margin-right: 4px;
+  }
+  .app-academics.model-resultuploadbatch .rub-meta-muted {
+    color: #94a3b8;
+    font-size: 13px;
+  }
+  .app-academics.model-resultuploadbatch .rub-progress-full {
+    color: #047857;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .app-academics.model-resultuploadbatch .rub-progress-partial {
+    color: #92400e;
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .app-academics.model-resultuploadbatch .rub-progress-pending {
+    color: #64748b;
+    font-size: 13px;
+  }
+  /* Approval (4th), Results progress (5th), Actions (6th) — room to breathe */
+  .app-academics.model-resultuploadbatch #changelist .results th:nth-child(4),
+  .app-academics.model-resultuploadbatch #changelist .results td:nth-child(4) {
+    min-width: 120px;
+  }
+  .app-academics.model-resultuploadbatch #changelist .results th:nth-child(5),
+  .app-academics.model-resultuploadbatch #changelist .results td:nth-child(5) {
+    min-width: 100px;
+  }
+  .app-academics.model-resultuploadbatch #changelist .results th:nth-child(6),
+  .app-academics.model-resultuploadbatch #changelist .results td:nth-child(6) {
+    min-width: 240px;
+  }
+
+  /* Date hierarchy & paginator */
+  .app-academics.model-resultuploadbatch #changelist .xfull {
+    padding: 12px 0;
+  }
+  .app-academics.model-resultuploadbatch #changelist .paginator {
+    padding: 20px 0;
+    font-size: 14px;
+    color: #64748b;
+    border-top: 1px solid #e2e8f0;
+    margin-top: 0;
+  }
+  .app-academics.model-resultuploadbatch #changelist .paginator a,
+  .app-academics.model-resultuploadbatch #changelist .paginator .this-page {
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-weight: 500;
+  }
+  .app-academics.model-resultuploadbatch #changelist .paginator a:hover {
+    background: #f1f5f9;
+    color: #0d9488;
+  }
+  .app-academics.model-resultuploadbatch #changelist .paginator .this-page {
+    background: #0d9488;
+    color: #fff;
+  }
+
+  /* Submit line / actions row if present */
+  .app-academics.model-resultuploadbatch #changelist-form .actions {
+    padding: 16px 20px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    margin-bottom: 20px;
+  }
+  .app-academics.model-resultuploadbatch #changelist-form .actions select {
+    min-height: 44px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+</style>
+<script>
+(function() {
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.app-academics.model-resultuploadbatch .rub-actions-cell a[data-confirm]').forEach(function(a) {
+      a.addEventListener('click', function(e) {
+        if (!confirm(a.getAttribute('data-confirm'))) e.preventDefault();
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="rub-changelist-wrapper">
+  {% if scope_info and scope_info.is_scoped %}
+  <div class="module rub-scope-banner" role="status">
+    <strong>Viewing: {{ scope_info.scope_label }}</strong>
+    <span class="rub-scope-note">
+      Only upload batches in your {{ scope_info.scope_type }} are shown. Approve or reject batches here; all actions are scoped to your {{ scope_info.scope_type }}.
+    </span>
+  </div>
+  {% endif %}
+
+  <div class="rub-page-header">
+    <h1>Result upload batches</h1>
+    <p class="rub-page-desc">
+      Review and approve or reject result uploads. Each batch contains multiple course results; approving a batch marks all its results as approved. You can always download the import report (failed rows). Approved batches can be reverted to draft (Unapprove); rejected batches can be re-opened for approval.
+    </p>
+    <div class="rub-stats">
+      <a href="{% url 'admin:academics_resultuploadbatch_changelist' %}?approval_status=PENDING_APPROVAL&amp;status=COMPLETED" class="rub-stat-card rub-stat-pending" title="View batches pending approval">
+        <div class="rub-stat-value">{{ batch_pending_count|default:0 }}</div>
+        <div class="rub-stat-label">Pending approval</div>
+      </a>
+      <a href="{% url 'admin:academics_resultuploadbatch_changelist' %}?approval_status=APPROVED" class="rub-stat-card rub-stat-approved" title="View approved batches">
+        <div class="rub-stat-value">{{ batch_approved_count|default:0 }}</div>
+        <div class="rub-stat-label">Approved</div>
+      </a>
+      <a href="{% url 'admin:academics_resultuploadbatch_changelist' %}?approval_status=REJECTED" class="rub-stat-card rub-stat-rejected" title="View rejected batches">
+        <div class="rub-stat-value">{{ batch_rejected_count|default:0 }}</div>
+        <div class="rub-stat-label">Rejected</div>
+      </a>
+    </div>
+  </div>
+
+  {{ block.super }}
+</div>
+{% endblock %}

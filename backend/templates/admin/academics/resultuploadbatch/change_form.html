@@ -1,0 +1,23 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block content %}
+{% if batch_total_results is not None %}
+<div class="rub-change-banner" style="margin-bottom: 24px; padding: 18px 24px; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px solid #e2e8f0; border-radius: 12px;">
+  <p style="margin: 0 0 10px 0; font-size: 15px; font-weight: 600; color: #0f172a;">
+    Results: <strong>{{ batch_approved_count }}</strong> / <strong>{{ batch_total_results }}</strong> approved
+    {% if batch_approved_count >= batch_total_results and batch_total_results > 0 %}
+    <span style="color: #047857;"> · Status: Approved</span>
+    {% elif batch_approved_count > 0 %}
+    <span style="color: #92400e;"> · Partially Approved</span>
+    {% else %}
+    <span style="color: #64748b;"> · Pending approval</span>
+    {% endif %}
+  </p>
+  <p style="margin: 0; font-size: 13px; color: #64748b;">
+    <a href="{{ batch_hub_url }}" style="color: #0d9488; font-weight: 600;">View &amp; approve individually in Results Hub →</a>
+  </p>
+</div>
+{% endif %}
+{{ block.super }}
+{% endblock %}

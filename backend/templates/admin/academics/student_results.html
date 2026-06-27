@@ -1,0 +1,224 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% load academics_tags %}
+
+{% block extrastyle %}
+<style>
+    .results-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    .student-info-box {
+        background: #1f2937;
+        color: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 20px;
+    }
+    .info-item {
+        display: flex;
+        flex-direction: column;
+    }
+    .info-label {
+        font-size: 12px;
+        color: #9ca3af;
+        margin-bottom: 5px;
+    }
+    .info-value {
+        font-size: 16px;
+        font-weight: 600;
+    }
+    .results-table {
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    thead {
+        background: #f9fafb;
+    }
+    th {
+        padding: 12px 16px;
+        text-align: left;
+        font-weight: 600;
+        font-size: 12px;
+        color: #6b7280;
+        text-transform: uppercase;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    td {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e5e7eb;
+        font-size: 14px;
+    }
+    tbody tr:hover {
+        background: #f9fafb;
+    }
+    .summary-section {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 20px;
+    }
+    .summary-item {
+        text-align: center;
+    }
+    .summary-label {
+        font-size: 12px;
+        color: #6b7280;
+        margin-bottom: 8px;
+    }
+    .summary-value {
+        font-size: 18px;
+        font-weight: 600;
+        color: #111827;
+    }
+    .summary-value.cgpa {
+        color: #10b981;
+        font-size: 24px;
+    }
+    .back-link {
+        display: inline-block;
+        margin-bottom: 20px;
+        color: #10b981;
+        text-decoration: none;
+    }
+    .back-link:hover {
+        text-decoration: underline;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="results-container">
+    <a href="{% url 'admin:academics_result_changelist' %}" class="back-link">← Back to Results</a>
+    
+    <h1 style="margin-bottom: 20px; color: #111827;">Semester: {{ semester|title }}</h1>
+    
+    <!-- Student Info Box -->
+    <div class="student-info-box">
+        <div class="info-item">
+            <span class="info-label">Name</span>
+            <span class="info-value">{{ student.first_name }} {{ student.last_name }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Matric No</span>
+            <span class="info-value">{{ student.student_id }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Level</span>
+            <span class="info-value">{{ summary.level|default:"N/A" }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Semester</span>
+            <span class="info-value">{{ semester|title }}</span>
+        </div>
+    </div>
+    
+    <!-- Results Table -->
+    <div class="results-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Course Code</th>
+                    <th>Course Title</th>
+                    <th>Credit Unit</th>
+                    <th>Grade</th>
+                    <th>Grade Point</th>
+                    <th>Score</th>
+                    <th>Remark</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for result in results %}
+                <tr>
+                    <td>{{ result.course.code }}</td>
+                    <td>{{ result.course.title }}</td>
+                    <td>{{ result.course.credit_units }}</td>
+                    <td style="font-weight: 600;">{{ result.grade }}</td>
+                    <td>{{ result.grade_point }}</td>
+                    <td>{{ result.get_score_display }}</td>
+                    <td>{{ grade_remarks|get_item:result.grade|default:"N/A" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 40px; color: #6b7280;">
+                        No results found for this semester
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Summary Section -->
+    {% if summary %}
+    <div class="summary-section">
+        <h3 style="margin-bottom: 20px; color: #111827;">Summary</h3>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="summary-label">LE</div>
+                <div class="summary-value">{{ summary.level|default:"N/A" }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">NSS</div>
+                <div class="summary-value">{{ summary.courses_count }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">RCU</div>
+                <div class="summary-value">{{ summary.registered_credit_units }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">ECU</div>
+                <div class="summary-value">{{ summary.earned_credit_units }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">CP</div>
+                <div class="summary-value">{{ summary.credit_points|floatformat:1 }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">GPA</div>
+                <div class="summary-value">{{ summary.gpa|floatformat:2 }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">TRCU</div>
+                <div class="summary-value">{{ summary.total_registered_credit_units }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">TECU</div>
+                <div class="summary-value">{{ summary.total_earned_credit_units }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">TCP</div>
+                <div class="summary-value">{{ summary.total_credit_points|floatformat:1 }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">PCGPA</div>
+                <div class="summary-value">{{ summary.previous_cgpa|floatformat:2 }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">CGPA</div>
+                <div class="summary-value cgpa">{{ summary.cgpa|floatformat:2 }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Standing</div>
+                <div class="summary-value">{{ summary.academic_standing }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

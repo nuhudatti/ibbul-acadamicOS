@@ -1,0 +1,651 @@
+/**
+ * Axios API client with automatic JWT injection and token refresh.
+ * All calls go to the Django backend at NEXT_PUBLIC_API_URL.
+ */
+import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
+import { isTokenExpired } from './utils'
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+
+/** Multipart POST — bypasses axios default JSON Content-Type so browser sets boundary. */
+function multipartPost(path: string, formData: FormData, timeout = 120_000) {
+  const token = tokenStorage.getAccess()
+  return axios.post(`${BASE_URL}/api${path}`, formData, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    timeout,
+  })
+}
+
+// ─── Token storage helpers (browser-only) ─────────────────────────────────────
+
+const TOKEN_KEY = 'ibbul_access'
+const REFRESH_KEY = 'ibbul_refresh'
+
+export const tokenStorage = {
+  getAccess: (): string | null =>
+    typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null,
+  getRefresh: (): string | null =>
+    typeof window !== 'undefined' ? localStorage.getItem(REFRESH_KEY) : null,
+  setTokens: (access: string, refresh: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(TOKEN_KEY, access)
+      localStorage.setItem(REFRESH_KEY, refresh)
+      // Bridge keys for the Vite Result Checker (reads 'access_token'/'refresh_token').
+      // Because both apps are proxied through the same origin (port 3000),
+      // they share localStorage — the Vite app picks these up automatically.
+      localStorage.setItem('access_token', access)
+      localStorage.setItem('refresh_token', refresh)
+    }
+  },
+  clearTokens: () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(REFRESH_KEY)
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('refresh_token')
+    }
+  },
+}
+
+// ─── Axios instance ────────────────────────────────────────────────────────────
+
+const api: AxiosInstance = axios.create({
+  baseURL: `${BASE_URL}/api`,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 30_000,
+})
+
+// ─── Request interceptor — inject Bearer token ─────────────────────────────────
+
+api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
+  let access = tokenStorage.getAccess()
+  const refresh = tokenStorage.getRefresh()
+
+  // Refresh access token if expired and refresh token exists
+  if (access && isTokenExpired(access) && refresh && !isTokenExpired(refresh)) {
+    try {
+      const response = await axios.post(`${BASE_URL}/api/accounts/token/refresh/`, {
+        refresh,
+      })
+      access = response.data.access
+      const newRefresh = response.data.refresh ?? refresh
+      if (access) tokenStorage.setTokens(access, newRefresh)
+    } catch {
+      tokenStorage.clearTokens()
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login'
+      }
+      return Promise.reject(new Error('Session expired'))
+    }
+  }
+
+  if (access) {
+    config.headers.Authorization = `Bearer ${access}`
+  }
+  return config
+})
+
+// ─── Response interceptor — handle 401 ────────────────────────────────────────
+
+api.interceptors.response.use(
+  response => response,
+  async error => {
+    const original = error.config
+    if (error.response?.status === 401 && !original._retry) {
+      original._retry = true
+      const refresh = tokenStorage.getRefresh()
+      if (refresh && !isTokenExpired(refresh)) {
+        try {
+          const response = await axios.post(`${BASE_URL}/api/accounts/token/refresh/`, { refresh })
+          const newAccess = response.data.access
+          const newRefresh = response.data.refresh ?? refresh
+          tokenStorage.setTokens(newAccess, newRefresh)
+          original.headers.Authorization = `Bearer ${newAccess}`
+          return api(original)
+        } catch {
+          tokenStorage.clearTokens()
+          if (typeof window !== 'undefined') window.location.href = '/login'
+        }
+      } else {
+        tokenStorage.clearTokens()
+        if (typeof window !== 'undefined') window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
+// ─── Auth endpoints ─────────────────────────────────────────────────────────────
+
+export const authAPI = {
+  login: (credentials: { username: string; password: string }) =>
+    api.post('/accounts/login/', credentials),
+
+  refreshToken: (refresh: string) =>
+    api.post('/accounts/token/refresh/', { refresh }),
+
+  getProfile: () => api.get('/accounts/profile/'),
+
+  changePassword: (data: { current_password: string; new_password: string; new_password_confirm: string }) =>
+    api.post('/accounts/settings/change-password/', data),
+
+  firstLoginChangePassword: (data: { current_password: string; new_password: string; new_password_confirm: string }) =>
+    api.post('/accounts/first-login/change-password/', data),
+
+  forgotPassword: (data: { reg_number_or_email: string }) =>
+    api.post('/accounts/forgot-password/', data),
+
+  forgotPasswordConfirm: (data: { uidb64: string; token: string; new_password: string; new_password_confirm: string }) =>
+    api.post('/accounts/forgot-password/confirm/', data),
+
+  updateEmail: (data: { email: string }) =>
+    api.patch('/accounts/settings/update-email/', data),
+}
+
+// ─── Academic Core — single source of truth ────────────────────────────────────
+// Both Results and Learning modules MUST use coreAPI for structure/identity data.
+// They must NOT call their own structure endpoints.
+
+export const coreAPI = {
+  // Structure
+  getFaculties: (params?: Record<string, string>) =>
+    api.get('/core/faculties/', { params }),
+
+  createFaculty: (data: { name: string; code: string; is_active?: boolean }) =>
+    api.post('/core/faculties/', data),
+
+  getDepartments: (params?: Record<string, string>) =>
+    api.get('/core/departments/', { params }),
+
+  createDepartment: (data: { name: string; code: string; faculty: number; is_active?: boolean }) =>
+    api.post('/core/departments/', data),
+
+  getCourses: (params?: Record<string, string>) =>
+    api.get('/core/courses/', { params }),
+
+  bulkCreateCourses: (data: {
+    department_id?: number
+    courses: Array<{
+      code: string
+      title: string
+      level: string
+      semester: string
+      credit_units?: number
+      examiner_id?: number | null
+    }>
+  }) => api.post('/core/courses/bulk/', data),
+
+  deleteCourse: (courseId: number) => api.delete(`/core/courses/${courseId}/`),
+
+  getAcademicTree: () => api.get('/core/tree/'),
+
+  // Sessions
+  getSessions: () => api.get('/core/sessions/'),
+  getCurrentSession: () => api.get('/core/sessions/current/'),
+  createSession: (data: { name: string; is_current?: boolean; start_date?: string; end_date?: string }) =>
+    api.post('/core/sessions/', data),
+  updateSession: (id: number, data: Partial<{ name: string; is_current: boolean; start_date: string; end_date: string }>) =>
+    api.patch(`/core/sessions/${id}/`, data),
+
+  // Student course registrations
+  getRegistrations: (params?: Record<string, string>) =>
+    api.get('/core/registrations/', { params }),
+  getMyRegistrations: () => api.get('/core/my-registrations/'),
+  createRegistration: (data: { student: number; course: number; session: number; semester: string; status?: string }) =>
+    api.post('/core/registrations/', data),
+
+  // Scoped user lists
+  getStudents: (params?: Record<string, string>) =>
+    api.get('/core/students/', { params }),
+  getStaff: () => api.get('/core/staff/'),
+
+  // Summary / context
+  getSummary: () => api.get('/core/summary/'),
+
+  /** Public branding for login, emails, and auth pages (no auth required). */
+  getPlatformBrandingPublic: () => api.get('/core/platform-branding/public/'),
+
+  /** Super Admin: persist logo, background, and colours to the server. */
+  updatePlatformBranding: (data: Record<string, unknown>) =>
+    api.patch('/core/platform-branding/', data),
+
+  /** Upload branding asset to Cloudinary → returns { url, publicId } */
+  uploadPlatformBrandingAsset: (file: File, type: 'logo' | 'background' | 'banner') => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('type', type)
+    return api.post('/core/platform-branding/upload/', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  /** Enterprise setup wizard (first run only) */
+  getSetupStatus: () => api.get('/core/setup/status/'),
+  completeSetup: (data: Record<string, unknown>) =>
+    api.post('/core/setup/complete/', data),
+}
+
+// ─── Results Module endpoints ────────────────────────────────────────────────────
+
+export const academicsAPI = {
+  getCourses: (params?: Record<string, string>) =>
+    api.get('/academics/courses/', { params }),
+
+  getMyAssignedCourses: () =>
+    api.get('/academics/courses/my_assigned/'),
+
+  getResults: (params?: Record<string, string>) =>
+    api.get('/academics/results/', { params }),
+
+  getMyResults: () =>
+    api.get('/academics/results/my_results/'),
+
+  getResultSummary: (params: { student_id?: string; session?: string; semester?: string }) =>
+    api.get('/academics/results/summary/', { params }),
+
+  getMyGPA: () => api.get('/academics/gpa/my_gpa/'),
+
+  // HOD endpoints
+  hodGetResults: (params?: Record<string, string>) =>
+    api.get('/academics/hod/results/', { params }),
+
+  hodApproveResult: (id: number) =>
+    api.post(`/academics/hod/results/${id}/approve/`),
+
+  hodRejectResult: (id: number, reason: string) =>
+    api.post(`/academics/hod/results/${id}/reject/`, { reason, rejection_reason: reason }),
+
+  hodBulkApprove: (ids: number[]) =>
+    api.post('/academics/hod/results/bulk_approve/', { result_ids: ids }),
+
+  hodBulkReject: (ids: number[], reason: string) =>
+    api.post('/academics/hod/results/bulk_reject/', { result_ids: ids, reason, rejection_reason: reason }),
+
+  hodBulkUnapprove: (ids: number[]) =>
+    api.post('/academics/hod/results/bulk_unapprove/', { result_ids: ids }),
+
+  hodBulkDelete: (ids: number[]) =>
+    api.post('/academics/hod/results/bulk_delete/', { result_ids: ids }),
+
+  hodUnapproveResult: (id: number) =>
+    api.post(`/academics/hod/results/${id}/unapprove/`),
+
+  deleteResult: (id: number) =>
+    api.delete(`/academics/hod/results/${id}/`),
+
+  hodGetStats: () =>
+    api.get('/academics/hod/results/summary_stats/'),
+
+  // Upload — same flow as the working Result Checker app (/api/admin/upload-results/)
+  uploadResultsCreate: (formData: FormData) =>
+    multipartPost('/admin/upload-results/', formData),
+
+  getUploadBatchStatus: (batchId: number) =>
+    api.get(`/admin/upload-results/${batchId}/`),
+
+  retryUploadBatch: (batchId: number) =>
+    api.post(`/admin/upload-results/${batchId}/retry/`),
+
+  // HOD validate/preview/submit (optional pre-check flow)
+  validateUpload: (formData: FormData) =>
+    multipartPost('/academics/hod/upload/validate/', formData, 60_000),
+
+  previewUpload: (formData: FormData) =>
+    multipartPost('/academics/hod/upload/preview/', formData, 60_000),
+
+  submitUpload: (formData: FormData) =>
+    multipartPost('/academics/hod/upload/submit/', formData, 120_000),
+
+  manualEntry: (payload: {
+    student_id?: string
+    course_code?: string
+    score?: number
+    session?: string
+    semester?: string
+    results?: Array<{
+      student_id: string
+      course_code: string
+      score: number
+      session: string
+      semester: string
+    }>
+  }) => api.post('/academics/results/manual_entry/', payload),
+
+  /** Full student semester manual entry (IBBUL format — course lines + summary) */
+  manualStudentEntry: (payload: {
+    student_id: string
+    session: string
+    semester: 'FIRST' | 'SECOND'
+    course_entries?: string
+    course_lines?: string[]
+    summary?: string | Record<string, string>
+  }) => api.post('/academics/hod/manual-entry/', payload),
+
+  searchStudents: (params?: Record<string, string>) =>
+    api.get('/academics/students/', { params }),
+
+  getUploadBatches: (params?: Record<string, string>) =>
+    api.get('/academics/upload-batches/', { params }),
+
+  getUploadBatchDetail: (id: number) =>
+    api.get(`/academics/upload-batches/${id}/`),
+
+  downloadUploadBatchErrorReport: (id: number) =>
+    api.get(`/academics/upload-batches/${id}/error-report/`, { responseType: 'blob' }),
+
+  approveBatch: (id: number) =>
+    api.post(`/academics/upload-batches/${id}/approve/`),
+
+  rejectBatch: (id: number, reason: string) =>
+    api.post(`/academics/upload-batches/${id}/reject/`, { reason }),
+
+  getExaminers: (params?: Record<string, string>) =>
+    api.get('/academics/hod/users/', { params }),
+
+  assignCourses: (userId: number, courseIds: number[]) =>
+    api.post(`/academics/hod/users/${userId}/assign_courses/`, { course_ids: courseIds }),
+
+  getResultsByCourse: (courseId: number) =>
+    api.get('/academics/results/by_course/', { params: { course_id: String(courseId) } }),
+}
+
+// ─── Audit endpoints ────────────────────────────────────────────────────────────
+
+export const auditAPI = {
+  list: (params?: Record<string, string>) =>
+    api.get('/accounts/audit/', { params }),
+}
+
+// ─── Staff invitations & governance (Super Admin) ───────────────────────────────
+
+export interface StaffInvitationRecord {
+  id: number
+  email: string | null
+  student_id: string | null
+  first_name: string
+  last_name: string
+  role: string
+  role_label: string
+  faculty_id: number | null
+  faculty_name: string | null
+  department_id: number | null
+  department_name: string | null
+  status: string
+  delivery_status: string
+  delivery_error: string | null
+  send_count: number
+  invite_url: string | null
+  token_preview: string | null
+  created_at: string | null
+  sent_at: string | null
+  last_sent_at: string | null
+  accepted_at: string | null
+  expires_at: string | null
+  is_expired: boolean
+  user_id: number | null
+  invited_by_email: string | null
+}
+
+export const invitationAPI = {
+  list: (params?: Record<string, string>) =>
+    api.get<{ results: StaffInvitationRecord[]; count: number }>('/accounts/invitations/', { params }),
+
+  create: (data: {
+    email: string
+    first_name: string
+    last_name: string
+    role: string
+    faculty_id?: number | null
+    department_id?: number | null
+    student_id?: string | null
+  }) => api.post<{ message: string; invitation: StaffInvitationRecord }>('/accounts/invitations/', data),
+
+  resend: (id: number) =>
+    api.post<{ message: string; invitation: StaffInvitationRecord }>(`/accounts/invitations/${id}/resend/`),
+
+  revoke: (id: number) =>
+    api.post<{ message: string; invitation: StaffInvitationRecord }>(`/accounts/invitations/${id}/revoke/`),
+
+  verify: (token: string) =>
+    axios.get(`${BASE_URL}/api/accounts/invitations/verify/`, { params: { token } }),
+
+  accept: (data: { token: string; password: string; password_confirm: string }) =>
+    axios.post(`${BASE_URL}/api/accounts/invitations/accept/`, data),
+}
+
+export const governanceStaffAPI = {
+  suspend: (userId: number) =>
+    api.post<{ message: string }>(`/accounts/governance/staff/${userId}/suspend/`),
+
+  reactivate: (userId: number) =>
+    api.post<{ message: string }>(`/accounts/governance/staff/${userId}/reactivate/`),
+
+  removeAssignment: (userId: number) =>
+    api.post<{ message: string }>(`/accounts/governance/staff/${userId}/remove-assignment/`),
+}
+
+// ─── HOD Department Management ────────────────────────────────────────────────
+
+export interface HodDepartmentOverview {
+  department_id: number | null
+  department_name: string | null
+  faculty_id: number | null
+  faculty_name: string | null
+  counts: {
+    lecturers: number
+    students: number
+    pending_invitations: number
+    active_lecturers: number
+  }
+}
+
+export interface HodLecturerRow {
+  id: number
+  email: string
+  first_name: string
+  last_name: string
+  full_name: string
+  is_active: boolean
+  last_login: string | null
+  assigned_courses: { id: number; code: string; title: string }[]
+  status: string
+  pending: boolean
+}
+
+export interface HodStudentRow {
+  id: number
+  student_id: string
+  email: string | null
+  first_name: string
+  last_name: string
+  full_name: string
+  department_name: string
+  is_active: boolean
+  last_login: string | null
+  status: string
+  pending_activation?: boolean
+}
+
+export const hodDepartmentAPI = {
+  overview: () =>
+    api.get<HodDepartmentOverview>('/academics/hod/department/overview/'),
+
+  lecturers: (params?: Record<string, string>) =>
+    api.get<{ results: HodLecturerRow[]; count: number }>('/academics/hod/department/lecturers/', { params }),
+
+  students: (params?: Record<string, string>) =>
+    api.get<{ results: HodStudentRow[]; count: number }>('/academics/hod/department/students/', { params }),
+
+  listInvitations: (params?: Record<string, string>) =>
+    api.get<{ results: StaffInvitationRecord[]; count: number }>('/academics/hod/department/invitations/', { params }),
+
+  createInvitation: (data: {
+    email: string
+    first_name: string
+    last_name: string
+    role: 'EXAMINER' | 'STUDENT'
+    student_id?: string
+  }) =>
+    api.post<{ message: string; invitation: StaffInvitationRecord }>('/academics/hod/department/invitations/', data),
+
+  resendInvitation: (id: number) =>
+    api.post<{ message: string; invitation: StaffInvitationRecord }>(`/academics/hod/department/invitations/${id}/resend/`),
+
+  revokeInvitation: (id: number) =>
+    api.post<{ message: string; invitation: StaffInvitationRecord }>(`/academics/hod/department/invitations/${id}/revoke/`),
+
+  bulkInviteStudents: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return multipartPost('/academics/hod/department/students/bulk-invite/', form)
+  },
+
+  deactivateStudent: (id: number) =>
+    api.post<{ message: string; is_active: boolean }>(`/academics/hod/department/students/${id}/deactivate/`),
+
+  reactivateStudent: (id: number) =>
+    api.post<{ message: string; is_active: boolean }>(`/academics/hod/department/students/${id}/reactivate/`),
+
+  deleteStudent: (id: number) =>
+    api.delete<{ message: string }>(`/academics/hod/department/students/${id}/`),
+}
+
+// ─── Learning endpoints ─────────────────────────────────────────────────────────
+
+export const learningAPI = {
+  // Offerings
+  getOfferings: (params?: Record<string, string>) =>
+    api.get('/learning/offerings/', { params }),
+
+  getCatalog: () =>
+    api.get('/learning/offerings/catalog/'),
+
+  getOfferingDetail: (id: number) =>
+    api.get(`/learning/offerings/${id}/`),
+
+  getMyOfferings: () =>
+    api.get('/learning/offerings/my_offerings/'),
+
+  getOfferingStudents: (id: number) =>
+    api.get(`/learning/offerings/${id}/students/`),
+
+  createOffering: (data: Partial<{ course: number; session: string; semester: string; description: string; is_published: boolean }>) =>
+    api.post('/learning/offerings/', data),
+
+  updateOffering: (id: number, data: Record<string, unknown>) =>
+    api.patch(`/learning/offerings/${id}/`, data),
+
+  // Dashboard stats
+  getDashboardStats: () =>
+    api.get('/learning/dashboard-stats/'),
+
+  // Enrollments
+  getMyEnrollments: () =>
+    api.get('/learning/enrollments/my_enrollments/'),
+
+  enroll: (offering_id: number, pin?: string) =>
+    api.post('/learning/enrollments/enroll/', { offering_id, ...(pin ? { pin } : {}) }),
+
+  unenroll: (offering_id: number) =>
+    api.post('/learning/enrollments/unenroll/', { offering_id }),
+
+  // Modules
+  getModules: (offeringId: number) =>
+    api.get('/learning/modules/', { params: { offering: offeringId } }),
+
+  createModule: (data: { offering: number; title: string; description?: string; order?: number }) =>
+    api.post('/learning/modules/', data),
+
+  updateModule: (id: number, data: Record<string, unknown>) =>
+    api.patch(`/learning/modules/${id}/`, data),
+
+  deleteModule: (id: number) =>
+    api.delete(`/learning/modules/${id}/`),
+
+  // Lessons
+  getLessons: (moduleId: number) =>
+    api.get('/learning/lessons/', { params: { module: moduleId } }),
+
+  getLessonDetail: (id: number) =>
+    api.get(`/learning/lessons/${id}/`),
+
+  markLessonComplete: (id: number) =>
+    api.post(`/learning/lessons/${id}/mark_complete/`),
+
+  createLesson: (data: Record<string, unknown>) =>
+    api.post('/learning/lessons/', data),
+
+  updateLesson: (id: number, data: Record<string, unknown>) =>
+    api.patch(`/learning/lessons/${id}/`, data),
+
+  deleteLesson: (id: number) =>
+    api.delete(`/learning/lessons/${id}/`),
+
+  // Quizzes
+  getQuiz: (lessonId: number) =>
+    api.get('/learning/quizzes/', { params: { lesson: lessonId } }),
+
+  startQuiz: (quizId: number) =>
+    api.post(`/learning/quizzes/${quizId}/start/`),
+
+  submitQuiz: (quizId: number, data: { answers: Record<string, number>; focus_loss_count: number }) =>
+    api.post(`/learning/quizzes/${quizId}/submit/`, data),
+
+  getMyAttempts: (quizId: number) =>
+    api.get(`/learning/quizzes/${quizId}/my_attempts/`),
+
+  createQuiz: (data: Record<string, unknown>) =>
+    api.post('/learning/quizzes/', data),
+
+  updateQuiz: (id: number, data: Record<string, unknown>) =>
+    api.patch(`/learning/quizzes/${id}/`, data),
+
+  createAssignment: (data: Record<string, unknown>) =>
+    api.post('/learning/assignments/', data),
+
+  updateAssignment: (id: number, data: Record<string, unknown>) =>
+    api.patch(`/learning/assignments/${id}/`, data),
+
+  addQuestion: (quizId: number, data: Record<string, unknown>) =>
+    api.post('/learning/questions/', { ...data, quiz: quizId }),
+
+  updateQuestion: (id: number, data: Record<string, unknown>) =>
+    api.patch(`/learning/questions/${id}/`, data),
+
+  deleteQuestion: (id: number) =>
+    api.delete(`/learning/questions/${id}/`),
+
+  // Assignments
+  getAssignment: (lessonId: number) =>
+    api.get('/learning/assignments/', { params: { lesson: lessonId } }),
+
+  submitAssignment: (assignmentId: number, data: { content: string; file_key?: string; focus_loss_count?: number }) =>
+    api.post(`/learning/assignments/${assignmentId}/submit/`, data),
+
+  getMySubmission: (assignmentId: number) =>
+    api.get(`/learning/assignments/${assignmentId}/my_submission/`),
+
+  getSubmissions: (assignmentId: number) =>
+    api.get(`/learning/assignments/${assignmentId}/submissions/`),
+
+  gradeSubmission: (assignmentId: number, data: { student_id: number; score: number; feedback?: string }) =>
+    api.post(`/learning/assignments/${assignmentId}/grade/`, data),
+
+  // Learning Engine
+  uploadLessonMedia: (lessonId: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return multipartPost(`/learning/lessons/${lessonId}/upload-media/`, fd)
+  },
+
+  getLivePosition: (lessonId: number) =>
+    api.get(`/learning/lessons/${lessonId}/live-position/`),
+
+  setLivePosition: (lessonId: number, data: { scroll_percent: number; page?: number; active?: boolean }) =>
+    api.post(`/learning/lessons/${lessonId}/live-position/`, data),
+
+  getGradebook: (offeringId: number) =>
+    api.get(`/learning/offerings/${offeringId}/gradebook/`),
+}
+
+export default api

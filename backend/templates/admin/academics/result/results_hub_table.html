@@ -1,0 +1,1104 @@
+{% load i18n admin_urls static %}
+<div class="result-hub-content">
+  <div id="hub-toast" class="result-hub-toast" role="status" aria-live="polite" hidden></div>
+  <form method="get" class="result-hub-filters" action="">
+    <div class="result-hub-filters-inner">
+      {% if hub_upload_batch_id %}
+      <input type="hidden" name="upload_batch" value="{{ hub_upload_batch_id }}">
+      <span class="result-hub-filter-note">Batch #{{ hub_upload_batch_id }}</span>
+      {% endif %}
+      <label>Session</label>
+      <select name="session">
+        <option value="">All sessions</option>
+        {% for s in hub_sessions %}
+        <option value="{{ s }}" {% if hub_filter_session == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <label>Semester</label>
+      <select name="semester">
+        <option value="">All</option>
+        <option value="FIRST" {% if hub_filter_semester == 'FIRST' %}selected{% endif %}>First Semester</option>
+        <option value="SECOND" {% if hub_filter_semester == 'SECOND' %}selected{% endif %}>Second Semester</option>
+      </select>
+      <label>Status</label>
+      <select name="status">
+        <option value="">All</option>
+        {% for val, label in hub_status_choices %}
+        <option value="{{ val }}" {% if hub_filter_status == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <label>Search</label>
+      <input type="text" name="q" value="{{ hub_search_query|default:'' }}" placeholder="Student ID or name…">
+      <button type="submit" class="result-hub-btn result-hub-btn-primary">Apply</button>
+    </div>
+  </form>
+
+  {% if not is_examiner %}
+  <form method="post" id="hub-batch-form" action="">
+    {% csrf_token %}
+    <input type="hidden" name="result_ids" id="hub-result-ids" value="">
+    <input type="hidden" name="summary_ids" id="hub-summary-ids" value="">
+    <input type="hidden" name="hub_batch_approve" id="hub-batch-approve-flag" value="">
+    <input type="hidden" name="hub_batch_unapprove" id="hub-batch-unapprove-flag" value="">
+    <input type="hidden" name="hub_approve_summary" id="hub-approve-summary-flag" value="">
+    <input type="hidden" name="hub_unapprove_summary" id="hub-unapprove-summary-flag" value="">
+    <input type="hidden" name="hub_batch_delete" id="hub-batch-delete-flag" value="">
+    <input type="hidden" name="hub_delete_summary" id="hub-delete-summary-flag" value="">
+    <div class="result-hub-bulk-bar" id="hub-bulk-bar" style="display: none;">
+      <span class="result-hub-bulk-label"><strong id="hub-selected-count">0</strong> selected</span>
+      <label for="hub-bulk-action" class="result-hub-bulk-action-label">Action</label>
+      <select id="hub-bulk-action" class="result-hub-select-action">
+        <option value="">Choose action…</option>
+        <option value="approve">Approve selected</option>
+        <option value="unapprove">Unapprove selected</option>
+        <option value="delete">Delete</option>
+      </select>
+      <button type="button" class="result-hub-btn result-hub-btn-primary" id="hub-bulk-go">Go</button>
+    </div>
+  </form>
+  {% endif %}
+
+  <div class="result-hub-table-card">
+    <table class="result-hub-table">
+      <thead>
+        <tr>
+          {% if not is_examiner %}<th class="result-hub-th-cb"><input type="checkbox" id="hub-select-all-page" title="Select all on page"></th>{% endif %}
+          <th class="result-hub-th-expand"></th>
+          <th class="result-hub-th-student">Student</th>
+          <th class="result-hub-th-meta">Session / Semester</th>
+          <th class="result-hub-th-courses">Courses</th>
+          <th class="result-hub-th-summary">Summary</th>
+          {% if not is_examiner %}<th class="result-hub-th-actions">Actions</th>{% endif %}
+          <th class="result-hub-th-status">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for group in hub_student_groups %}
+        {% with student=group.student results=group.results group_key=group.group_key %}
+        <tr class="result-hub-student-row" data-student-id="{{ student.pk }}" data-session="{{ group.session }}" data-semester="{{ group.semester }}">
+          {% if not is_examiner %}<td class="result-hub-td-cb"><input type="checkbox" class="hub-student-row-cb" data-row="hub-detail-{{ group_key }}" title="Select all courses for this student"></td>{% endif %}
+          <td class="result-hub-td-expand">
+            <button type="button" class="result-hub-expand-btn" aria-expanded="false" aria-controls="hub-detail-{{ group_key }}" data-target="hub-detail-{{ group_key }}">
+              <span class="result-hub-expand-label">View {{ results|length }} course{{ results|length|pluralize }}</span>
+              <span class="result-hub-chevron" aria-hidden="true">▼</span>
+            </button>
+          </td>
+          <td class="result-hub-td-student">
+            <span class="result-hub-student-id">{{ student.student_id|default:student.email }}</span>
+            <span class="result-hub-student-name">{{ student.get_full_name|default:"" }}</span>
+          </td>
+          <td class="result-hub-td-meta">
+            <span class="result-hub-session-badge">{{ group.session }}</span>
+            <span class="result-hub-semester-badge">{{ group.semester|default:"" }}{% if group.semester == 'FIRST' %} (First){% elif group.semester == 'SECOND' %} (Second){% endif %}</span>
+          </td>
+          <td class="result-hub-td-courses">{{ results|length }}</td>
+          <td class="result-hub-td-summary">
+            {% if group.summary and group.summary_display and group.summary.approved %}
+            <div class="result-hub-summary-inline">
+              <span class="result-hub-summary-item"><em>GPA</em> <strong>{{ group.summary_display.gpa|default:"—" }}</strong></span>
+              <span class="result-hub-summary-item"><em>PCGPA</em> <strong>{{ group.summary_display.pcgpa|default:"—" }}</strong></span>
+              <span class="result-hub-summary-item"><em>CGPA</em> <strong>{{ group.summary_display.cgpa|default:"—" }}</strong></span>
+            </div>
+            {% elif group.summary and not group.summary.approved %}
+            <span class="result-hub-muted" title="Summary not yet approved">Draft</span>
+            {% else %}
+            <span class="result-hub-muted">—</span>
+            {% endif %}
+          </td>
+          {% if not is_examiner %}
+          <td class="result-hub-td-row-actions">
+            <div class="result-hub-row-action-wrap" data-row="hub-detail-{{ group_key }}">
+              {% if group.all_approved %}
+              <span class="result-hub-mark result-hub-mark-approved result-hub-mark-row" title="All courses approved">✓</span>
+              <button type="button" class="result-hub-btn-inline result-hub-btn-unapprove hub-unapprove-all-btn" title="Unapprove all courses">Unapprove all</button>
+              <a href="{% url 'admin:academics_result_student_summary' %}?student_id={{ student.student_id|urlencode }}&session={{ group.session|urlencode }}&semester={{ group.semester|urlencode }}" class="result-hub-btn-inline result-hub-btn-edit" target="_blank" title="View full summary">Summary →</a>
+              {% else %}
+              <div class="result-hub-actions-dropdown">
+                <button type="button" class="result-hub-actions-trigger" aria-haspopup="true" aria-expanded="false" title="Actions for all courses">Actions <span class="result-hub-actions-caret">▾</span></button>
+                <div class="result-hub-actions-menu" role="menu" hidden>
+                  <button type="button" class="result-hub-action-item hub-approve-all-btn" role="menuitem">✓ Approve all</button>
+                  <button type="button" class="result-hub-action-item hub-unapprove-all-btn" role="menuitem">↩ Unapprove all</button>
+                  <a href="{% url 'admin:academics_result_student_summary' %}?student_id={{ student.student_id|urlencode }}&session={{ group.session|urlencode }}&semester={{ group.semester|urlencode }}" class="result-hub-action-item result-hub-action-link" role="menuitem" target="_blank">Summary →</a>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+          </td>
+          {% endif %}
+          <td class="result-hub-td-status">
+            <div class="result-hub-status-summary">
+              {% if group.status_counts.APPROVED %}<span class="result-hub-pill result-hub-pill-success">{{ group.status_counts.APPROVED }} Approved</span>{% endif %}
+              {% if group.status_counts.DRAFT %}<span class="result-hub-pill result-hub-pill-draft">{{ group.status_counts.DRAFT }} Draft</span>{% endif %}
+              {% if group.status_counts.SUBMITTED %}<span class="result-hub-pill result-hub-pill-submitted">{{ group.status_counts.SUBMITTED }} Submitted</span>{% endif %}
+              {% if group.status_counts.REVIEW %}<span class="result-hub-pill result-hub-pill-pending">{{ group.status_counts.REVIEW }} Review</span>{% endif %}
+              {% if group.status_counts.REJECTED %}<span class="result-hub-pill result-hub-pill-rejected">{{ group.status_counts.REJECTED }} Rejected</span>{% endif %}
+              {% if group.status_counts.RETURNED %}<span class="result-hub-pill result-hub-pill-status">{{ group.status_counts.RETURNED }} Returned</span>{% endif %}
+            </div>
+          </td>
+        </tr>
+        <tr class="result-hub-detail-row" id="hub-detail-{{ group_key }}" hidden>
+          <td colspan="{% if is_examiner %}7{% else %}8{% endif %}" class="result-hub-detail-td">
+            <div class="result-hub-detail-inner">
+              {% if not is_examiner %}
+              <div class="result-hub-detail-bar hub-row-actions" data-row="hub-detail-{{ group_key }}">
+                <span class="result-hub-row-selected-label"><strong class="hub-row-selected-count">0</strong> selected</span>
+                <label for="hub-row-action-{{ group_key }}" class="result-hub-detail-action-label">Action</label>
+                <select id="hub-row-action-{{ group_key }}" class="hub-row-action-select" data-row="hub-detail-{{ group_key }}">
+                  <option value="">Choose action…</option>
+                  <option value="approve">Approve selected</option>
+                  <option value="unapprove">Unapprove selected</option>
+                  <option value="delete">Delete</option>
+                </select>
+                <button type="button" class="result-hub-btn result-hub-btn-sm result-hub-btn-primary hub-row-go-btn" data-row="hub-detail-{{ group_key }}">Go</button>
+                <span class="result-hub-detail-hint">Select course(s) and/or summary below, pick action, then Go.</span>
+              </div>
+              {% endif %}
+              <p class="result-hub-courses-title">Course results · {{ group.session }} · {% with r=results.0 %}{{ r.get_semester_display|default:group.semester }}{% endwith %}</p>
+              <div class="result-hub-courses-scroll">
+                <table class="result-hub-courses-table">
+                  <thead>
+                    <tr>
+                      {% if not is_examiner %}<th class="result-hub-cb"><input type="checkbox" class="hub-select-all-in-row" data-row="hub-detail-{{ group_key }}" title="Select all in this row"></th>{% endif %}
+                      <th>Course</th>
+                      <th>Score</th>
+                      <th>Grade</th>
+                      <th>Session</th>
+                      <th>Semester</th>
+                      <th>Batch</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for r in results %}
+                    <tr data-result-id="{{ r.pk }}" data-group-key="{{ group_key }}">
+                      {% if not is_examiner %}
+                      <td class="result-hub-cb">
+                        <input type="checkbox" class="hub-result-cb" value="{{ r.pk }}">
+                      </td>
+                      {% endif %}
+                      <td><strong>{{ r.course.code }}</strong>{% if r.course.title %} — {{ r.course.title }}{% endif %}</td>
+                      <td>{{ r.get_score_display }}</td>
+                      <td>{{ r.get_grade_display|default:r.grade }}</td>
+                      <td>{{ r.session }}</td>
+                      <td>{{ r.get_semester_display|default:r.semester }}</td>
+                      <td>
+                        {% if r.upload_batch %}
+                        <a href="{% url 'admin:academics_resultuploadbatch_change' r.upload_batch_id %}" class="result-hub-link">Batch #{{ r.upload_batch_id }}{% if r.upload_batch.approval_status == 'PENDING_APPROVAL' %} — Pending{% elif r.upload_batch.approval_status == 'APPROVED' %} — ✓ Approved{% elif r.upload_batch.approval_status == 'REJECTED' %} — Rejected{% endif %}</a>
+                        {% else %}<span class="result-hub-muted">Manual</span>{% endif %}
+                      </td>
+                      <td><span class="result-hub-pill result-hub-pill-status">{{ r.status }}</span></td>
+                      <td class="result-hub-actions" data-result-actions>
+                        <a href="{% url 'admin:academics_result_change' r.pk %}" class="result-hub-btn-inline result-hub-btn-edit" title="View this result">View</a>
+                        {% if not is_examiner %}
+                        {% if r.status == 'APPROVED' or r.status == 'LOCKED_PUBLISHED' %}
+                        <span class="result-hub-mark result-hub-mark-approved" title="Approved{% if r.upload_batch and r.upload_batch.approval_status == 'APPROVED' %} by batch{% endif %}">✓</span>
+                        <a href="{% url 'admin:academics_result_unapprove' r.pk %}" class="result-hub-btn-inline result-hub-btn-unapprove hub-ajax-unapprove" title="Unapprove and return to draft" data-result-id="{{ r.pk }}">Unapprove</a>
+                        {% elif r.upload_batch and r.upload_batch.approval_status == 'REJECTED' %}
+                        <span class="result-hub-mark result-hub-mark-rejected">✗ Rejected</span>
+                        {% else %}
+                        <a href="{% url 'admin:academics_result_approve' r.pk %}?status=APPROVED" class="result-hub-btn-inline result-hub-btn-approve hub-ajax-approve" title="Approve this result" data-result-id="{{ r.pk }}">Approve</a>
+                        {% endif %}
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                  {% if group.summary and group.summary_display and not is_examiner %}
+                  <tbody class="result-hub-summary-tbody">
+                    <tr class="result-hub-summary-row" data-summary-id="{{ group.summary.pk }}">
+                      <td class="result-hub-cb"><input type="checkbox" class="hub-summary-cb" value="{{ group.summary.pk }}" data-row="hub-detail-{{ group_key }}"></td>
+                      <td colspan="2"><strong class="result-hub-summary-row-label">Academic summary</strong> · {{ group.session }} · {{ group.semester }}</td>
+                      <td class="result-hub-summary-value">{{ group.summary_display.gpa|default:"—" }}</td>
+                      <td class="result-hub-summary-value">{{ group.summary_display.pcgpa|default:"—" }}</td>
+                      <td class="result-hub-summary-value">{{ group.summary_display.cgpa|default:"—" }}</td>
+                      <td>{% if group.summary.upload_batch %}<a href="{% url 'admin:academics_resultuploadbatch_change' group.summary.upload_batch_id %}" class="result-hub-link">Batch #{{ group.summary.upload_batch_id }}</a>{% if group.summary.upload_batch.approval_status == 'PENDING_APPROVAL' %} — Pending{% elif group.summary.upload_batch.approval_status == 'APPROVED' %} — ✓ Approved{% elif group.summary.upload_batch.approval_status == 'REJECTED' %} — Rejected{% endif %}{% else %}<span class="result-hub-muted">Manual</span>{% endif %}</td>
+                      <td><span class="result-hub-pill {% if group.summary.approved %}result-hub-pill-success{% else %}result-hub-pill-draft{% endif %}">{% if group.summary.approved %}Approved{% else %}Draft{% endif %}</span></td>
+                      <td class="result-hub-actions">
+                        <a href="{% url 'admin:academics_result_student_summary' %}?student_id={{ student.student_id|urlencode }}&session={{ group.session|urlencode }}&semester={{ group.semester|urlencode }}" class="result-hub-btn-inline result-hub-btn-edit" target="_blank" title="View full summary">View</a>
+                        {% if group.summary.approved %}
+                        <span class="result-hub-mark result-hub-mark-approved" title="Summary approved">✓</span>
+                        <button type="button" class="result-hub-btn-inline result-hub-btn-unapprove hub-summary-unapprove-btn" data-summary-id="{{ group.summary.pk }}" title="Unapprove summary">Unapprove</button>
+                        {% else %}
+                        <button type="button" class="result-hub-btn-inline result-hub-btn-approve hub-summary-approve-btn" data-summary-id="{{ group.summary.pk }}" title="Approve summary">Approve</button>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  </tbody>
+                  {% elif group.summary and group.summary_display and is_examiner %}
+                  <tbody class="result-hub-summary-tbody">
+                    <tr class="result-hub-summary-row" data-summary-id="{{ group.summary.pk }}">
+                      <td colspan="6"><strong class="result-hub-summary-row-label">Academic summary</strong> · {{ group.session }} · {{ group.semester }}{% if group.summary.upload_batch %} · <a href="{% url 'admin:academics_resultuploadbatch_change' group.summary.upload_batch_id %}" class="result-hub-link">Batch #{{ group.summary.upload_batch_id }}</a>{% else %} · <span class="result-hub-muted">Manual</span>{% endif %} · GPA {{ group.summary_display.gpa|default:"—" }} · PCGPA {{ group.summary_display.pcgpa|default:"—" }} · CGPA {{ group.summary_display.cgpa|default:"—" }}</td>
+                      <td><span class="result-hub-pill {% if group.summary.approved %}result-hub-pill-success{% else %}result-hub-pill-draft{% endif %}">{% if group.summary.approved %}Approved{% else %}Draft{% endif %}</span></td>
+                      <td><a href="{% url 'admin:academics_result_student_summary' %}?student_id={{ student.student_id|urlencode }}&session={{ group.session|urlencode }}&semester={{ group.semester|urlencode }}" class="result-hub-btn-inline result-hub-btn-edit" target="_blank">View</a></td>
+                    </tr>
+                  </tbody>
+                  {% endif %}
+                </table>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endwith %}
+        {% empty %}
+        <tr>
+          <td colspan="{% if is_examiner %}7{% else %}8{% endif %}" class="result-hub-empty">No results match the current filters. Change session, semester, or search and click Apply.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<style>
+  /* World-class base: clarity, timeless typography, generous space */
+  .result-hub-content { max-width: 100%; overflow-x: auto; min-width: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  .result-hub-table { font-size: 14px; }
+  .result-hub-table thead th { font-weight: 600; letter-spacing: 0.02em; }
+
+  /* Banners */
+  .result-hub-banner { border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; font-size: 14px; }
+  .result-hub-banner strong { display: block; margin-bottom: 4px; }
+  .result-hub-banner span { color: #475569; }
+  .result-hub-banner-scope { background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 1px solid #a7f3d0; }
+  .result-hub-banner-lecturer { background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 1px solid #a7f3d0; }
+
+  /* Header */
+  .result-hub-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #e2e8f0; }
+  .result-hub-title { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0; letter-spacing: -0.02em; }
+  .result-hub-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .result-hub-btn { display: inline-flex; align-items: center; padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: transform 0.1s, box-shadow 0.2s; }
+  .result-hub-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .result-hub-btn-primary { background: #0d9488; color: #fff; }
+  .result-hub-btn-primary:hover { background: #0f766e; color: #fff; }
+  .result-hub-btn-secondary { background: #f1f5f9; color: #475569; }
+  .result-hub-btn-secondary:hover { background: #e2e8f0; color: #0f172a; }
+  .result-hub-btn-amber { background: #d97706; color: #fff; }
+  .result-hub-btn-amber:hover { background: #b45309; color: #fff; }
+  .result-hub-btn-success { background: #059669; color: #fff; }
+  .result-hub-btn-success:hover { background: #047857; color: #fff; }
+  .result-hub-btn-sm { padding: 8px 14px; font-size: 13px; }
+
+  /* Filters — select height so selected value is visible */
+  .result-hub-filters { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 22px; margin-bottom: 24px; }
+  .result-hub-filters-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+  .result-hub-filter-note { display: inline-block; padding: 6px 12px; border-radius: 8px; background: #e0f2fe; color: #0369a1; font-size: 12px; font-weight: 600; }
+  .result-hub-filters label { font-size: 13px; font-weight: 600; color: #475569; }
+  .result-hub-filters select,
+  .result-hub-filters input[type="text"] {
+    padding: 12px 16px;
+    min-height: 44px;
+    height: 44px;
+    line-height: 1.25;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 14px;
+    min-width: 140px;
+    background: #fff;
+    box-sizing: border-box;
+  }
+  .result-hub-filters select { cursor: pointer; appearance: auto; }
+  .result-hub-filters input[type="text"] { min-width: 220px; }
+  .result-hub-filters select:focus,
+  .result-hub-filters input[type="text"]:focus { outline: none; border-color: #0d9488; box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15); }
+
+  /* Bulk action bar */
+  .result-hub-bulk-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+    padding: 14px 20px;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 1px solid #a7f3d0;
+    border-radius: 12px;
+  }
+  .result-hub-bulk-label { font-size: 14px; color: #065f46; }
+  .result-hub-bulk-action-label { font-size: 13px; font-weight: 600; color: #047857; }
+  .result-hub-select-action {
+    min-height: 44px;
+    height: 44px;
+    padding: 10px 14px;
+    border: 1px solid #a7f3d0;
+    border-radius: 10px;
+    font-size: 14px;
+    min-width: 180px;
+    background: #fff;
+    cursor: pointer;
+  }
+
+  /* Status summary — single line, no repeat */
+  .result-hub-status-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .result-hub-status-summary .result-hub-pill { margin: 0; }
+
+  /* Prevent page overflow when content expands */
+  /* Table card: premium elevation and containment */
+  .result-hub-table-card {
+    background: #fff; border-radius: 16px; border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+    overflow-x: auto; max-width: 100%; min-width: 0;
+  }
+  .result-hub-table { width: 100%; min-width: 800px; border-collapse: collapse; border-spacing: 0; }
+  .result-hub-table thead { background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); color: #fff; }
+  .result-hub-table thead th { padding: 16px 20px; text-align: left; }
+  .result-hub-table tbody td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  .result-hub-table tbody tr.result-hub-student-row { transition: background 0.12s ease; }
+  .result-hub-table tbody tr.result-hub-student-row:hover { background: #fafbfc; }
+  .result-hub-expand-btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 9px 15px; background: #0d9488; color: #fff; border: none; border-radius: 10px;
+    font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.08s ease, box-shadow 0.2s;
+  }
+  .result-hub-expand-btn:hover { background: #0f766e; color: #fff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25); }
+  .result-hub-expand-btn[aria-expanded="true"] { background: #0f766e; box-shadow: inset 0 1px 0 rgba(0,0,0,0.06); }
+  .result-hub-chevron { font-size: 10px; transition: transform 0.25s ease; display: inline-block; }
+  .result-hub-expand-btn[aria-expanded="true"] .result-hub-chevron { transform: rotate(-180deg); }
+  .result-hub-th-expand, .result-hub-td-expand { width: 1%; white-space: nowrap; }
+  .result-hub-td-student { }
+  .result-hub-student-id { display: block; font-weight: 600; color: #0f172a; font-size: 14px; letter-spacing: 0.01em; }
+  .result-hub-student-name { display: block; font-size: 13px; color: #64748b; margin-top: 2px; }
+  .result-hub-td-meta { color: #475569; }
+  .result-hub-session-badge { display: inline-block; padding: 5px 10px; border-radius: 8px; background: #e0f2fe; color: #0369a1; margin-right: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+  .result-hub-semester-badge { display: inline-block; padding: 5px 10px; border-radius: 8px; background: #f3e8ff; color: #6b21a8; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+  .result-hub-td-courses { font-weight: 600; color: #0d9488; }
+  .result-hub-th-summary, .result-hub-td-summary { min-width: 160px; }
+  .result-hub-summary-inline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 16px; font-size: 13px; color: #334155; letter-spacing: 0.01em; }
+  .result-hub-summary-inline .result-hub-summary-item { display: inline-flex; align-items: baseline; gap: 4px; }
+  .result-hub-summary-inline .result-hub-summary-item em { font-style: normal; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+  .result-hub-summary-inline .result-hub-summary-item strong { font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; min-width: 3ch; }
+  .result-hub-th-actions, .result-hub-td-row-actions { min-width: 120px; }
+  .result-hub-row-action-wrap { position: relative; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .result-hub-row-action-wrap .result-hub-actions-dropdown { display: inline-block; }
+  .result-hub-row-action-wrap .result-hub-mark-row { vertical-align: middle; }
+  .result-hub-actions-dropdown { position: relative; }
+  .result-hub-actions-trigger {
+    display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; color: #475569;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+  }
+  .result-hub-actions-trigger:hover { border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .result-hub-actions-trigger[aria-expanded="true"] { border-color: #0d9488; box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.2); }
+  .result-hub-actions-caret { font-size: 10px; opacity: 0.7; transition: transform 0.2s; }
+  .result-hub-actions-trigger[aria-expanded="true"] .result-hub-actions-caret { transform: rotate(180deg); }
+  .result-hub-actions-menu {
+    position: absolute; top: 100%; left: 0; margin-top: 4px; min-width: 180px; padding: 6px;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+    z-index: 100; text-align: left; list-style: none;
+  }
+  .result-hub-action-item { display: block; width: 100%; padding: 10px 14px; font-size: 13px; font-weight: 500; color: #334155; background: none; border: none; border-radius: 8px; cursor: pointer; text-align: left; text-decoration: none; font-family: inherit; transition: background 0.15s; }
+  .result-hub-action-item:hover { background: #f1f5f9; color: #0f172a; }
+  .result-hub-action-link { color: #0d9488; }
+  .result-hub-action-link:hover { background: #ecfdf5; color: #0f766e; }
+  .result-hub-summary-section { margin-bottom: 24px; }
+  .result-hub-summary-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; margin-bottom: 12px; }
+  .result-hub-summary-caption { font-size: 13px; font-weight: 600; color: #475569; letter-spacing: 0.02em; }
+  .result-hub-summary-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .result-hub-summary-table { width: 100%; max-width: 420px; font-size: 13px; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
+  .result-hub-summary-table thead th { padding: 12px 16px; text-align: left; background: #f8fafc; color: #475569; font-weight: 600; border-bottom: 1px solid #e2e8f0; }
+  .result-hub-summary-table tbody td { padding: 10px 16px; border-bottom: 1px solid #f1f5f9; }
+  .result-hub-summary-table tbody tr:last-child td { border-bottom: none; }
+  .result-hub-summary-value { font-variant-numeric: tabular-nums; font-weight: 600; color: #0f172a; }
+  .result-hub-summary-remarks-cell { font-size: 12px; color: #64748b; font-style: italic; }
+  .result-hub-summary-tbody { background: #f0fdf4; }
+  .result-hub-summary-row { border-top: 2px solid #a7f3d0; }
+  .result-hub-summary-row .result-hub-summary-value { color: #047857; }
+  .result-hub-summary-row-label { color: #065f46; }
+  .result-hub-pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; margin-right: 4px; margin-bottom: 2px; }
+  .result-hub-pill-success { background: #d1fae5; color: #065f46; }
+  .result-hub-pill-draft { background: #f1f5f9; color: #475569; }
+  .result-hub-pill-submitted { background: #dbeafe; color: #1e40af; }
+  .result-hub-pill-pending { background: #fef3c7; color: #92400e; }
+  .result-hub-pill-rejected { background: #fee2e2; color: #991b1b; }
+  .result-hub-pill-status { background: #e2e8f0; color: #475569; }
+
+  /* Detail row */
+  .result-hub-detail-row { background: #f8fafc; }
+  .result-hub-detail-td { padding: 0; border-bottom: 2px solid #e2e8f0; vertical-align: top; }
+  .result-hub-detail-inner { padding: 24px 28px; }
+  .result-hub-detail-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 16px; }
+  .result-hub-row-selected-label { font-size: 13px; color: #475569; }
+  .result-hub-detail-action-label { font-size: 13px; font-weight: 600; color: #475569; }
+  .hub-row-action-select {
+    min-height: 38px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px;
+    min-width: 160px; background: #fff; cursor: pointer;
+  }
+  .result-hub-detail-hint { font-size: 12px; color: #64748b; margin-left: 4px; }
+  .result-hub-courses-title { font-size: 13px; font-weight: 600; color: #475569; margin: 0 0 12px 0; }
+  .result-hub-courses-scroll { overflow-x: auto; border-radius: 12px; border: 1px solid #e2e8f0; }
+  .result-hub-courses-table { width: 100%; font-size: 13px; border-collapse: collapse; background: #fff; }
+  .result-hub-courses-table thead th { padding: 12px 16px; text-align: left; background: #f1f5f9; color: #334155; font-weight: 600; border-bottom: 2px solid #e2e8f0; }
+  .result-hub-courses-table tbody td { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  .result-hub-courses-table tbody tr { border-bottom: 1px solid #e2e8f0; }
+  .result-hub-courses-table tbody tr:hover { background: #fafafa; }
+  .result-hub-cb { width: 48px; text-align: center; }
+  .result-hub-link { color: #0d9488; text-decoration: none; font-weight: 500; }
+  .result-hub-link:hover { text-decoration: underline; }
+  .result-hub-muted { color: #94a3b8; }
+  .result-hub-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; white-space: normal; min-width: 140px; }
+  .result-hub-btn-inline { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; text-decoration: none; margin-right: 0; flex-shrink: 0; border: none; cursor: pointer; font-family: inherit; }
+  a.result-hub-btn-inline { box-sizing: border-box; }
+  .result-hub-btn-approve { background: #059669; color: #fff; }
+  .result-hub-btn-approve:hover { background: #047857; color: #fff; }
+  .result-hub-btn-edit { background: #0d9488; color: #fff; }
+  .result-hub-btn-edit:hover { background: #0f766e; color: #fff; }
+  .result-hub-btn-unapprove { background: #d97706; color: #fff; }
+  .result-hub-btn-unapprove:hover { background: #b45309; color: #fff; }
+  .result-hub-btn-comment { background: #6366f1; color: #fff; }
+  .result-hub-btn-delete { background: #dc2626; color: #fff; }
+  .result-hub-btn-delete:hover { background: #b91c1c; color: #fff; }
+  .result-hub-btn-danger { background: #dc2626; color: #fff; }
+  .result-hub-btn-danger:hover { background: #b91c1c; color: #fff; }
+  .result-hub-success { color: #059669; font-weight: 600; margin-right: 8px; }
+  .result-hub-mark { display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+  .result-hub-mark-approved { color: #059669; font-size: 1.1em; margin-right: 6px; }
+  .result-hub-mark-row { margin-right: 8px; font-size: 1.15em; }
+  .result-hub-mark-summary { padding: 6px 12px; background: #d1fae5; color: #065f46; border-radius: 8px; font-size: 13px; margin-right: 0; }
+  .result-hub-mark-rejected { color: #dc2626; font-size: 12px; }
+  .result-hub-unapprove-link { font-size: 12px; color: #64748b; margin-left: 2px; }
+  .result-hub-unapprove-link:hover { color: #d97706; }
+  .result-hub-danger { color: #dc2626; font-weight: 600; }
+  .result-hub-empty { text-align: center; color: #64748b; padding: 48px 24px !important; font-size: 15px; }
+
+  /* Toast (no reload) — fixed, no focus, no layout shift */
+  .result-hub-toast {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    background: #0f172a;
+    color: #fff;
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+    tabindex: -1;
+  }
+  .result-hub-toast[hidden] { display: none !important; }
+  .result-hub-toast.show { animation: hub-toast-in 0.25s ease; }
+  @keyframes hub-toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+</style>
+
+<script>
+(function() {
+  var form = document.getElementById('hub-batch-form');
+  var resultIdsInput = document.getElementById('hub-result-ids');
+  var summaryIdsInput = document.getElementById('hub-summary-ids');
+  var bulkBar = document.getElementById('hub-bulk-bar');
+  var selectedCountEl = document.getElementById('hub-selected-count');
+  var bulkActionSelect = document.getElementById('hub-bulk-action');
+  var bulkGoBtn = document.getElementById('hub-bulk-go');
+  var approveFlag = document.getElementById('hub-batch-approve-flag');
+  var unapproveFlag = document.getElementById('hub-batch-unapprove-flag');
+  var approveSummaryFlag = document.getElementById('hub-approve-summary-flag');
+  var unapproveSummaryFlag = document.getElementById('hub-unapprove-summary-flag');
+
+  function getSelectedSummaryIds() {
+    var ids = [];
+    document.querySelectorAll('.hub-summary-cb:checked').forEach(function(c) { ids.push(c.value); });
+    return ids;
+  }
+  function getSelectedIds() {
+    var ids = [];
+    document.querySelectorAll('.hub-result-cb:checked').forEach(function(c) { ids.push(c.value); });
+    return ids;
+  }
+  function updateBulkBar() {
+    var resultIds = getSelectedIds();
+    var summaryIds = getSelectedSummaryIds();
+    var total = resultIds.length + summaryIds.length;
+    if (selectedCountEl) selectedCountEl.textContent = total;
+    if (resultIdsInput) resultIdsInput.value = resultIds.join(',');
+    if (summaryIdsInput) summaryIdsInput.value = summaryIds.join(',');
+    if (bulkBar) bulkBar.style.display = total > 0 ? 'flex' : 'none';
+    updateRowBarCounts();
+    syncSelectAllState();
+  }
+  function getSelectedIdsInRow(detailRowId) {
+    var row = document.getElementById(detailRowId);
+    if (!row) return { resultIds: [], summaryIds: [] };
+    var resultIds = [];
+    var summaryIds = [];
+    row.querySelectorAll('.hub-result-cb:checked').forEach(function(c) { resultIds.push(c.value); });
+    row.querySelectorAll('.hub-summary-cb:checked').forEach(function(c) { summaryIds.push(c.value); });
+    return { resultIds: resultIds, summaryIds: summaryIds };
+  }
+  function updateRowBarCounts() {
+    document.querySelectorAll('.hub-row-actions').forEach(function(bar) {
+      var rowId = bar.getAttribute('data-row');
+      var data = getSelectedIdsInRow(rowId);
+      var countEl = bar.querySelector('.hub-row-selected-count');
+      if (countEl) countEl.textContent = data.resultIds.length + data.summaryIds.length;
+    });
+  }
+  function syncSelectAllState() {
+    document.querySelectorAll('.hub-select-all-in-row').forEach(function(selectAll) {
+      var rowId = selectAll.getAttribute('data-row');
+      var detailRow = document.getElementById(rowId);
+      if (!detailRow) return;
+      var resultCbs = detailRow.querySelectorAll('.hub-result-cb');
+      var summaryCbs = detailRow.querySelectorAll('.hub-summary-cb');
+      var total = resultCbs.length + summaryCbs.length;
+      var checked = detailRow.querySelectorAll('.hub-result-cb:checked').length + detailRow.querySelectorAll('.hub-summary-cb:checked').length;
+      selectAll.checked = total > 0 && checked === total;
+      selectAll.indeterminate = checked > 0 && checked < total;
+    });
+    document.querySelectorAll('.hub-student-row-cb').forEach(function(rowCb) {
+      var rowId = rowCb.getAttribute('data-row');
+      var detailRow = document.getElementById(rowId);
+      if (!detailRow) return;
+      var resultCbs = detailRow.querySelectorAll('.hub-result-cb');
+      var summaryCbs = detailRow.querySelectorAll('.hub-summary-cb');
+      var total = resultCbs.length + summaryCbs.length;
+      var checked = detailRow.querySelectorAll('.hub-result-cb:checked').length + detailRow.querySelectorAll('.hub-summary-cb:checked').length;
+      rowCb.checked = total > 0 && checked === total;
+      rowCb.indeterminate = checked > 0 && checked < total;
+    });
+    var selectAllPage = document.getElementById('hub-select-all-page');
+    if (selectAllPage) {
+      var allResultCbs = document.querySelectorAll('.hub-result-cb');
+      var allSummaryCbs = document.querySelectorAll('.hub-summary-cb');
+      var totalChecked = document.querySelectorAll('.hub-result-cb:checked').length + document.querySelectorAll('.hub-summary-cb:checked').length;
+      var total = allResultCbs.length + allSummaryCbs.length;
+      selectAllPage.checked = total > 0 && totalChecked === total;
+      selectAllPage.indeterminate = totalChecked > 0 && totalChecked < total;
+    }
+  }
+
+  document.querySelectorAll('.result-hub-expand-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var targetId = this.getAttribute('data-target');
+      var row = document.getElementById(targetId);
+      if (!row) return;
+      var expanded = this.getAttribute('aria-expanded') === 'true';
+      row.hidden = expanded;
+      this.setAttribute('aria-expanded', !expanded);
+    });
+  });
+
+  document.querySelectorAll('.hub-result-cb').forEach(function(cb) {
+    cb.addEventListener('change', updateBulkBar);
+  });
+  document.querySelectorAll('.hub-summary-cb').forEach(function(cb) {
+    cb.addEventListener('change', updateBulkBar);
+  });
+  document.querySelectorAll('.hub-select-all-in-row').forEach(function(selectAll) {
+    selectAll.addEventListener('change', function() {
+      var rowId = this.getAttribute('data-row');
+      var detailRow = document.getElementById(rowId);
+      if (detailRow) {
+        detailRow.querySelectorAll('.hub-result-cb').forEach(function(cb) { cb.checked = selectAll.checked; });
+        detailRow.querySelectorAll('.hub-summary-cb').forEach(function(cb) { cb.checked = selectAll.checked; });
+      }
+      updateBulkBar();
+    });
+  });
+  document.querySelectorAll('.hub-student-row-cb').forEach(function(cb) {
+    cb.addEventListener('change', function() {
+      var rowId = this.getAttribute('data-row');
+      var detailRow = document.getElementById(rowId);
+      if (detailRow) {
+        detailRow.querySelectorAll('.hub-result-cb').forEach(function(rc) { rc.checked = cb.checked; });
+        detailRow.querySelectorAll('.hub-summary-cb').forEach(function(sc) { sc.checked = cb.checked; });
+        var selectAllInRow = detailRow.querySelector('.hub-select-all-in-row');
+        if (selectAllInRow) selectAllInRow.checked = cb.checked;
+      }
+      updateBulkBar();
+    });
+  });
+  var selectAllPage = document.getElementById('hub-select-all-page');
+  if (selectAllPage) {
+    selectAllPage.addEventListener('change', function() {
+      var checked = this.checked;
+      document.querySelectorAll('.hub-result-cb').forEach(function(cb) { cb.checked = checked; });
+      document.querySelectorAll('.hub-summary-cb').forEach(function(cb) { cb.checked = checked; });
+      document.querySelectorAll('.hub-select-all-in-row').forEach(function(sa) { sa.checked = checked; });
+      document.querySelectorAll('.hub-student-row-cb').forEach(function(rc) { rc.checked = checked; });
+      updateBulkBar();
+    });
+  }
+
+  function getRowIdForBtn(btn) {
+    var wrap = btn.closest('.result-hub-row-action-wrap') || btn.closest('.result-hub-summary-actions');
+    return wrap ? wrap.getAttribute('data-row') : null;
+  }
+  document.querySelectorAll('.hub-approve-all-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var rowId = getRowIdForBtn(this) || (this.getAttribute && this.getAttribute('data-row'));
+      var detailRow = document.getElementById(rowId);
+      if (!detailRow || !form || !resultIdsInput) return;
+      detailRow.querySelectorAll('.hub-result-cb').forEach(function(cb) { cb.checked = true; });
+      detailRow.querySelectorAll('.hub-summary-cb').forEach(function(cb) { cb.checked = true; });
+      updateBulkBar();
+      var resultIds = [];
+      var summaryIds = [];
+      detailRow.querySelectorAll('.hub-result-cb').forEach(function(c) { resultIds.push(c.value); });
+      detailRow.querySelectorAll('.hub-summary-cb').forEach(function(c) { summaryIds.push(c.value); });
+      var summaryRow = detailRow.querySelector('.result-hub-summary-row[data-summary-id]');
+      if (summaryRow && summaryIds.indexOf(summaryRow.getAttribute('data-summary-id')) === -1) summaryIds.push(summaryRow.getAttribute('data-summary-id'));
+      resultIdsInput.value = resultIds.join(',');
+      if (summaryIdsInput) summaryIdsInput.value = summaryIds.join(',');
+      if (approveFlag) approveFlag.value = resultIds.length ? '1' : '';
+      if (approveSummaryFlag) approveSummaryFlag.value = summaryIds.length ? '1' : '';
+      if (unapproveFlag) unapproveFlag.value = '';
+      if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+      var delFlag = document.getElementById('hub-batch-delete-flag');
+      if (delFlag) delFlag.value = '';
+      form.dispatchEvent(new Event('submit', { cancelable: true }));
+    });
+  });
+  document.querySelectorAll('.hub-unapprove-all-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var rowId = getRowIdForBtn(this) || (this.getAttribute && this.getAttribute('data-row'));
+      var detailRow = document.getElementById(rowId);
+      if (!detailRow || !form || !resultIdsInput) return;
+      detailRow.querySelectorAll('.hub-result-cb').forEach(function(cb) { cb.checked = true; });
+      detailRow.querySelectorAll('.hub-summary-cb').forEach(function(cb) { cb.checked = true; });
+      updateBulkBar();
+      var resultIds = [];
+      var summaryIds = [];
+      detailRow.querySelectorAll('.hub-result-cb').forEach(function(c) { resultIds.push(c.value); });
+      detailRow.querySelectorAll('.hub-summary-cb').forEach(function(c) { summaryIds.push(c.value); });
+      var summaryRow = detailRow.querySelector('.result-hub-summary-row[data-summary-id]');
+      if (summaryRow && summaryIds.indexOf(summaryRow.getAttribute('data-summary-id')) === -1) summaryIds.push(summaryRow.getAttribute('data-summary-id'));
+      resultIdsInput.value = resultIds.join(',');
+      if (summaryIdsInput) summaryIdsInput.value = summaryIds.join(',');
+      if (unapproveFlag) unapproveFlag.value = resultIds.length ? '1' : '';
+      if (unapproveSummaryFlag) unapproveSummaryFlag.value = summaryIds.length ? '1' : '';
+      if (approveFlag) approveFlag.value = '';
+      if (approveSummaryFlag) approveSummaryFlag.value = '';
+      var delFlag = document.getElementById('hub-batch-delete-flag');
+      if (delFlag) delFlag.value = '';
+      form.dispatchEvent(new Event('submit', { cancelable: true }));
+    });
+  });
+  document.querySelectorAll('.result-hub-actions-trigger').forEach(function(trigger) {
+    trigger.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var menu = this.nextElementSibling;
+      var expanded = this.getAttribute('aria-expanded') === 'true';
+      document.querySelectorAll('.result-hub-actions-menu').forEach(function(m) { m.hidden = true; });
+      document.querySelectorAll('.result-hub-actions-trigger').forEach(function(t) { t.setAttribute('aria-expanded', 'false'); });
+      if (!expanded && menu) { menu.hidden = false; this.setAttribute('aria-expanded', 'true'); }
+    });
+  });
+  document.addEventListener('click', function() {
+    document.querySelectorAll('.result-hub-actions-menu').forEach(function(m) { m.hidden = true; });
+    document.querySelectorAll('.result-hub-actions-trigger').forEach(function(t) { t.setAttribute('aria-expanded', 'false'); });
+  });
+  document.querySelectorAll('.result-hub-actions-menu').forEach(function(menu) {
+    menu.addEventListener('click', function(e) { e.stopPropagation(); });
+  });
+
+  document.querySelectorAll('.hub-row-go-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var rowId = this.getAttribute('data-row');
+      var data = getSelectedIdsInRow(rowId);
+      if (data.resultIds.length === 0 && data.summaryIds.length === 0) return;
+      var bar = this.closest('.hub-row-actions');
+      var actionSelect = bar ? bar.querySelector('.hub-row-action-select') : null;
+      var action = actionSelect ? actionSelect.value : '';
+      if (!action || !form) return;
+      if (resultIdsInput) resultIdsInput.value = data.resultIds.join(',');
+      if (summaryIdsInput) summaryIdsInput.value = data.summaryIds.join(',');
+      var delFlag = document.getElementById('hub-batch-delete-flag');
+      if (action === 'approve') {
+        if (approveFlag) approveFlag.value = '1';
+        if (unapproveFlag) unapproveFlag.value = '';
+        if (approveSummaryFlag) approveSummaryFlag.value = data.summaryIds.length ? '1' : '';
+        if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+        if (delFlag) delFlag.value = '';
+        form.submit();
+      } else if (action === 'unapprove') {
+        if (unapproveFlag) unapproveFlag.value = '1';
+        if (approveFlag) approveFlag.value = '';
+        if (unapproveSummaryFlag) unapproveSummaryFlag.value = data.summaryIds.length ? '1' : '';
+        if (approveSummaryFlag) approveSummaryFlag.value = '';
+        if (delFlag) delFlag.value = '';
+        form.submit();
+      } else if (action === 'delete') {
+        if (data.summaryIds.length && !data.resultIds.length) {
+          if (!confirm('Delete ' + data.summaryIds.length + ' selected summary/summaries? This cannot be undone.')) return;
+          if (resultIdsInput) resultIdsInput.value = '';
+          if (summaryIdsInput) summaryIdsInput.value = data.summaryIds.join(',');
+          var delFlag = document.getElementById('hub-batch-delete-flag');
+          var deleteSummaryFlag = document.getElementById('hub-delete-summary-flag');
+          if (approveFlag) approveFlag.value = '';
+          if (unapproveFlag) unapproveFlag.value = '';
+          if (approveSummaryFlag) approveSummaryFlag.value = '';
+          if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+          if (delFlag) delFlag.value = '';
+          if (deleteSummaryFlag) deleteSummaryFlag.value = '1';
+          form.submit();
+          return;
+        }
+        if (data.resultIds.length && !confirm('Delete ' + data.resultIds.length + ' selected result(s)? This cannot be undone.')) return;
+        if (data.resultIds.length === 0 && data.summaryIds.length === 0) return;
+        if (resultIdsInput) resultIdsInput.value = data.resultIds.join(',');
+        if (summaryIdsInput) summaryIdsInput.value = data.summaryIds.join(',');
+        var delFlag = document.getElementById('hub-batch-delete-flag');
+        var deleteSummaryFlag = document.getElementById('hub-delete-summary-flag');
+        if (approveFlag) approveFlag.value = '';
+        if (unapproveFlag) unapproveFlag.value = '';
+        if (approveSummaryFlag) approveSummaryFlag.value = '';
+        if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+        if (delFlag) delFlag.value = data.resultIds.length ? '1' : '';
+        if (deleteSummaryFlag) deleteSummaryFlag.value = data.summaryIds.length ? '1' : '';
+        form.submit();
+      }
+    });
+  });
+
+  if (bulkGoBtn && form && bulkActionSelect) {
+    bulkGoBtn.addEventListener('click', function() {
+      var action = (bulkActionSelect.value || '').trim();
+      var resultIds = getSelectedIds();
+      var summaryIds = getSelectedSummaryIds();
+      var total = resultIds.length + summaryIds.length;
+      if (total === 0) {
+        return;
+      }
+      if (!action) {
+        alert('Please choose an action: Approve selected, Unapprove selected, or Delete.');
+        return;
+      }
+      if (resultIdsInput) resultIdsInput.value = resultIds.join(',');
+      if (summaryIdsInput) summaryIdsInput.value = summaryIds.join(',');
+      var delFlag = document.getElementById('hub-batch-delete-flag');
+      if (action === 'approve') {
+        if (approveFlag) approveFlag.value = resultIds.length > 0 ? '1' : '';
+        if (unapproveFlag) unapproveFlag.value = '';
+        if (approveSummaryFlag) approveSummaryFlag.value = summaryIds.length > 0 ? '1' : '';
+        if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+        if (delFlag) delFlag.value = '';
+        form.submit();
+      } else if (action === 'unapprove') {
+        if (unapproveFlag) unapproveFlag.value = resultIds.length > 0 ? '1' : '';
+        if (approveFlag) approveFlag.value = '';
+        if (unapproveSummaryFlag) unapproveSummaryFlag.value = summaryIds.length > 0 ? '1' : '';
+        if (approveSummaryFlag) approveSummaryFlag.value = '';
+        if (delFlag) delFlag.value = '';
+        form.submit();
+      } else if (action === 'delete') {
+        if (resultIds.length === 0 && summaryIds.length === 0) return;
+        var msg = [];
+        if (resultIds.length) msg.push(resultIds.length + ' result(s)');
+        if (summaryIds.length) msg.push(summaryIds.length + ' summary/summaries');
+        if (!confirm('Delete ' + msg.join(' and ') + '? This cannot be undone.')) return;
+        if (approveFlag) approveFlag.value = '';
+        if (unapproveFlag) unapproveFlag.value = '';
+        if (approveSummaryFlag) approveSummaryFlag.value = '';
+        if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+        if (delFlag) delFlag.value = resultIds.length > 0 ? '1' : '';
+        var deleteSummaryFlag = document.getElementById('hub-delete-summary-flag');
+        if (deleteSummaryFlag) deleteSummaryFlag.value = summaryIds.length > 0 ? '1' : '';
+        form.submit();
+      }
+    });
+  }
+  document.querySelectorAll('.hub-summary-approve-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      if (!form || !summaryIdsInput) return;
+      var id = this.getAttribute('data-summary-id');
+      if (!id) return;
+      summaryIdsInput.value = id;
+      if (resultIdsInput) resultIdsInput.value = '';
+      if (approveSummaryFlag) approveSummaryFlag.value = '1';
+      if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+      if (approveFlag) approveFlag.value = '';
+      if (unapproveFlag) unapproveFlag.value = '';
+      var delFlag = document.getElementById('hub-batch-delete-flag');
+      if (delFlag) delFlag.value = '';
+      form.submit();
+    });
+  });
+  document.querySelectorAll('.hub-summary-unapprove-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      if (!form || !summaryIdsInput) return;
+      var id = this.getAttribute('data-summary-id');
+      if (!id) return;
+      summaryIdsInput.value = id;
+      if (resultIdsInput) resultIdsInput.value = '';
+      if (unapproveSummaryFlag) unapproveSummaryFlag.value = '1';
+      if (approveSummaryFlag) approveSummaryFlag.value = '';
+      if (approveFlag) approveFlag.value = '';
+      if (unapproveFlag) unapproveFlag.value = '';
+      var delFlag = document.getElementById('hub-batch-delete-flag');
+      if (delFlag) delFlag.value = '';
+      form.submit();
+    });
+  });
+  updateBulkBar();
+
+  /* ----- AJAX approve/unapprove: no page reload, table stays expanded ----- */
+  function getCookie(name) {
+    var m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return m ? decodeURIComponent(m[2]) : '';
+  }
+  function showToast(msg) {
+    var el = document.getElementById('hub-toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.removeAttribute('hidden');
+    el.classList.add('show');
+    el.setAttribute('aria-live', 'polite');
+    clearTimeout(el._toastTimer);
+    el._toastTimer = setTimeout(function() {
+      el.classList.remove('show');
+      el.setAttribute('hidden', '');
+    }, 2800);
+  }
+  function setResultRowState(row, status) {
+    var actionsTd = row.querySelector('td[data-result-actions]');
+    var statusTd = row.querySelector('td .result-hub-pill-status');
+    var viewUrl = row.querySelector('a.result-hub-btn-edit');
+    var viewHref = viewUrl ? viewUrl.getAttribute('href') : '#';
+    var resultId = row.getAttribute('data-result-id');
+    var base = (window.location.pathname || '').replace(/\/$/, '');
+    var approveUrl = base + '/' + resultId + '/approve/?status=APPROVED';
+    var unapproveUrl = base + '/' + resultId + '/unapprove/';
+    if (status === 'APPROVED' || status === 'LOCKED_PUBLISHED') {
+      if (statusTd) statusTd.textContent = 'APPROVED';
+      if (actionsTd) {
+        actionsTd.innerHTML = '<a href="' + viewHref + '" class="result-hub-btn-inline result-hub-btn-edit" title="View this result">View</a> ' +
+          '<span class="result-hub-mark result-hub-mark-approved" title="Approved">✓</span> ' +
+          '<a href="' + unapproveUrl + '" class="result-hub-btn-inline result-hub-btn-unapprove hub-ajax-unapprove" title="Unapprove and return to draft" data-result-id="' + resultId + '">Unapprove</a>';
+        actionsTd.querySelector('.hub-ajax-unapprove').addEventListener('click', handleUnapproveClick);
+      }
+    } else {
+      if (statusTd) statusTd.textContent = 'DRAFT';
+      if (actionsTd) {
+        actionsTd.innerHTML = '<a href="' + viewHref + '" class="result-hub-btn-inline result-hub-btn-edit" title="View this result">View</a> ' +
+          '<a href="' + approveUrl + '" class="result-hub-btn-inline result-hub-btn-approve hub-ajax-approve" title="Approve this result" data-result-id="' + resultId + '">Approve</a>';
+        actionsTd.querySelector('.hub-ajax-approve').addEventListener('click', handleApproveClick);
+      }
+    }
+  }
+  function updateStudentRowForGroup(groupKey) {
+    var detailRow = document.getElementById('hub-detail-' + groupKey);
+    if (!detailRow) return;
+    var resultRows = detailRow.querySelectorAll('tr[data-result-id]');
+    var approved = 0, total = resultRows.length;
+    resultRows.forEach(function(tr) {
+      var pill = tr.querySelector('.result-hub-pill-status');
+      if (pill && pill.textContent === 'APPROVED') approved++;
+    });
+    var studentRow = document.querySelector('tr.result-hub-student-row button[data-target="hub-detail-' + groupKey + '"]');
+    if (!studentRow) return;
+    studentRow = studentRow.closest('tr');
+    var wrap = studentRow.querySelector('.result-hub-row-action-wrap');
+    var statusSummary = studentRow.querySelector('.result-hub-status-summary');
+    if (!wrap) return;
+    var allApproved = total > 0 && approved === total;
+    var draftCount = total - approved;
+    if (statusSummary) {
+      var pills = [];
+      if (approved > 0) pills.push('<span class="result-hub-pill result-hub-pill-success">' + approved + ' Approved</span>');
+      if (draftCount > 0) pills.push('<span class="result-hub-pill result-hub-pill-draft">' + draftCount + ' Draft</span>');
+      if (!pills.length) pills.push('<span class="result-hub-pill result-hub-pill-status">—</span>');
+      statusSummary.innerHTML = pills.join('');
+    }
+    var hadDropdown = wrap.querySelector('.result-hub-actions-dropdown');
+    var hadUnapproveAll = wrap.querySelector('.hub-unapprove-all-btn');
+    if (allApproved && hadDropdown) {
+      wrap.innerHTML = '<span class="result-hub-mark result-hub-mark-approved result-hub-mark-row" title="All courses approved">✓</span> ' +
+        '<button type="button" class="result-hub-btn-inline result-hub-btn-unapprove hub-unapprove-all-btn" title="Unapprove all courses">Unapprove all</button> ' +
+        '<a href="#" class="result-hub-btn-inline result-hub-btn-edit" target="_blank" title="View full summary">Summary →</a>';
+      wrap.querySelector('.hub-unapprove-all-btn').addEventListener('click', function() {
+        var detailRow = document.getElementById('hub-detail-' + groupKey);
+        if (!detailRow) return;
+        var resultIds = [], summaryIds = [];
+        detailRow.querySelectorAll('.hub-result-cb').forEach(function(cb) { resultIds.push(cb.value); });
+        detailRow.querySelectorAll('.hub-summary-cb').forEach(function(cb) { summaryIds.push(cb.value); });
+        var summaryRow = detailRow.querySelector('.result-hub-summary-row[data-summary-id]');
+        if (summaryRow && summaryIds.indexOf(summaryRow.getAttribute('data-summary-id')) === -1) summaryIds.push(summaryRow.getAttribute('data-summary-id'));
+        if (resultIdsInput) resultIdsInput.value = resultIds.join(',');
+        if (summaryIdsInput) summaryIdsInput.value = summaryIds.join(',');
+        if (unapproveFlag) unapproveFlag.value = resultIds.length ? '1' : '';
+        if (unapproveSummaryFlag) unapproveSummaryFlag.value = summaryIds.length ? '1' : '';
+        if (approveFlag) approveFlag.value = '';
+        if (approveSummaryFlag) approveSummaryFlag.value = '';
+        form.dispatchEvent(new Event('submit', { cancelable: true }));
+      });
+    } else if (!allApproved && hadUnapproveAll) {
+      wrap.innerHTML = '<div class="result-hub-actions-dropdown">' +
+        '<button type="button" class="result-hub-actions-trigger" aria-haspopup="true" aria-expanded="false" title="Actions for all courses">Actions <span class="result-hub-actions-caret">▾</span></button>' +
+        '<div class="result-hub-actions-menu" role="menu" hidden>' +
+        '<button type="button" class="result-hub-action-item hub-approve-all-btn" role="menuitem">✓ Approve all</button>' +
+        '<button type="button" class="result-hub-action-item hub-unapprove-all-btn" role="menuitem">↩ Unapprove all</button>' +
+        '<a href="#" class="result-hub-action-item result-hub-action-link" role="menuitem" target="_blank">Summary →</a>' +
+        '</div></div>';
+      (function() {
+        var trigger = wrap.querySelector('.result-hub-actions-trigger');
+        var menu = wrap.querySelector('.result-hub-actions-menu');
+        if (trigger && menu) {
+          trigger.addEventListener('click', function() {
+            var open = menu.getAttribute('hidden') === null;
+            menu.setAttribute('hidden', open ? '' : null);
+            trigger.setAttribute('aria-expanded', !open);
+          });
+        }
+        function allIdsInRow() {
+          var detailRow = document.getElementById('hub-detail-' + groupKey);
+          if (!detailRow) return { resultIds: [], summaryIds: [] };
+          var resultIds = [], summaryIds = [];
+          detailRow.querySelectorAll('.hub-result-cb').forEach(function(cb) { resultIds.push(cb.value); });
+          detailRow.querySelectorAll('.hub-summary-cb').forEach(function(cb) { summaryIds.push(cb.value); });
+          var summaryRow = detailRow.querySelector('.result-hub-summary-row[data-summary-id]');
+          if (summaryRow && summaryIds.indexOf(summaryRow.getAttribute('data-summary-id')) === -1) summaryIds.push(summaryRow.getAttribute('data-summary-id'));
+          return { resultIds: resultIds, summaryIds: summaryIds };
+        }
+        wrap.querySelector('.hub-approve-all-btn').addEventListener('click', function() {
+          var data = allIdsInRow();
+          if (resultIdsInput) resultIdsInput.value = data.resultIds.join(',');
+          if (summaryIdsInput) summaryIdsInput.value = data.summaryIds.join(',');
+          if (approveFlag) approveFlag.value = data.resultIds.length ? '1' : '';
+          if (approveSummaryFlag) approveSummaryFlag.value = data.summaryIds.length ? '1' : '';
+          if (unapproveFlag) unapproveFlag.value = '';
+          if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+          form.dispatchEvent(new Event('submit', { cancelable: true }));
+        });
+        wrap.querySelector('.hub-unapprove-all-btn').addEventListener('click', function() {
+          var data = allIdsInRow();
+          if (resultIdsInput) resultIdsInput.value = data.resultIds.join(',');
+          if (summaryIdsInput) summaryIdsInput.value = data.summaryIds.join(',');
+          if (unapproveFlag) unapproveFlag.value = data.resultIds.length ? '1' : '';
+          if (unapproveSummaryFlag) unapproveSummaryFlag.value = data.summaryIds.length ? '1' : '';
+          if (approveFlag) approveFlag.value = '';
+          if (approveSummaryFlag) approveSummaryFlag.value = '';
+          form.dispatchEvent(new Event('submit', { cancelable: true }));
+        });
+      })();
+    }
+  }
+  function handleApproveClick(e) {
+    e.preventDefault();
+    var a = e.currentTarget;
+    var url = a.getAttribute('href');
+    var row = a.closest('tr[data-result-id]');
+    var resultId = row.getAttribute('data-result-id');
+    var groupKey = row.getAttribute('data-group-key');
+    var scrollY = window.scrollY || window.pageYOffset;
+    fetch(url, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          setResultRowState(row, data.status || 'APPROVED');
+          if (groupKey) updateStudentRowForGroup(groupKey);
+          showToast('Result approved');
+        } else { showToast(data.error || 'Failed'); }
+        requestAnimationFrame(function() {
+          window.scrollTo(0, scrollY);
+          requestAnimationFrame(function() { window.scrollTo(0, scrollY); });
+        });
+      })
+      .catch(function() { showToast('Request failed'); window.scrollTo(0, scrollY); });
+  }
+  function handleUnapproveClick(e) {
+    e.preventDefault();
+    var a = e.currentTarget;
+    var url = a.getAttribute('href');
+    var row = a.closest('tr[data-result-id]');
+    var resultId = row.getAttribute('data-result-id');
+    var groupKey = row.getAttribute('data-group-key');
+    var scrollY = window.scrollY || window.pageYOffset;
+    fetch(url, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          setResultRowState(row, 'DRAFT');
+          if (groupKey) updateStudentRowForGroup(groupKey);
+          showToast('Result unapproved');
+        } else { showToast(data.error || 'Failed'); }
+        requestAnimationFrame(function() {
+          window.scrollTo(0, scrollY);
+          requestAnimationFrame(function() { window.scrollTo(0, scrollY); });
+        });
+      })
+      .catch(function() { showToast('Request failed'); window.scrollTo(0, scrollY); });
+  }
+  document.querySelectorAll('.hub-ajax-approve').forEach(function(a) {
+    a.addEventListener('click', handleApproveClick);
+  });
+  document.querySelectorAll('.hub-ajax-unapprove').forEach(function(a) {
+    a.addEventListener('click', handleUnapproveClick);
+  });
+  form.addEventListener('submit', function(e) {
+    var isApprove = (approveFlag && approveFlag.value === '1') || (approveSummaryFlag && approveSummaryFlag.value === '1');
+    var isUnapprove = (unapproveFlag && unapproveFlag.value === '1') || (unapproveSummaryFlag && unapproveSummaryFlag.value === '1');
+    var delFlag = document.getElementById('hub-batch-delete-flag');
+    var delSummaryFlag = document.getElementById('hub-delete-summary-flag');
+    var isDelete = (delFlag && delFlag.value === '1') || (delSummaryFlag && delSummaryFlag.value === '1');
+    if ((isApprove || isUnapprove) && !isDelete) {
+      e.preventDefault();
+      var scrollY = window.scrollY || window.pageYOffset;
+      var fd = new FormData(form);
+      fd.append('X-Requested-With', 'XMLHttpRequest');
+      fetch(form.getAttribute('action') || window.location.href, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.success) { showToast(data.message || data.error || 'Done'); window.scrollTo(0, scrollY); return; }
+          var groupKeysDone = {};
+          (data.result_ids_approved || []).concat(data.result_ids_unapproved || []).forEach(function(id) {
+            var row = document.querySelector('tr[data-result-id="' + id + '"]');
+            if (row) {
+              setResultRowState(row, data.result_ids_approved && data.result_ids_approved.indexOf(id) !== -1 ? 'APPROVED' : 'DRAFT');
+              var gk = row.getAttribute('data-group-key');
+              if (gk) groupKeysDone[gk] = true;
+            }
+          });
+          Object.keys(groupKeysDone).forEach(function(gk) { updateStudentRowForGroup(gk); });
+          (data.summary_ids_approved || []).forEach(function(id) {
+            var sr = document.querySelector('tr.result-hub-summary-row[data-summary-id="' + id + '"]');
+            if (sr) {
+              var pill = sr.querySelector('.result-hub-pill');
+              if (pill) { pill.textContent = 'Approved'; pill.className = 'result-hub-pill result-hub-pill-success'; }
+              var actionsTd = sr.querySelector('td.result-hub-actions');
+              if (actionsTd) {
+                actionsTd.innerHTML = '<a href="#" class="result-hub-btn-inline result-hub-btn-edit" target="_blank" title="View full summary">View</a> <span class="result-hub-mark result-hub-mark-approved" title="Summary approved">✓</span> <button type="button" class="result-hub-btn-inline result-hub-btn-unapprove hub-summary-unapprove-btn" data-summary-id="' + id + '" title="Unapprove summary">Unapprove</button>';
+                actionsTd.querySelector('.hub-summary-unapprove-btn').addEventListener('click', function() {
+                  if (summaryIdsInput) summaryIdsInput.value = id;
+                  if (resultIdsInput) resultIdsInput.value = '';
+                  if (unapproveSummaryFlag) unapproveSummaryFlag.value = '1';
+                  if (approveSummaryFlag) approveSummaryFlag.value = '';
+                  form.dispatchEvent(new Event('submit', { cancelable: true }));
+                });
+              }
+            }
+          });
+          (data.summary_ids_unapproved || []).forEach(function(id) {
+            var sr = document.querySelector('tr.result-hub-summary-row[data-summary-id="' + id + '"]');
+            if (sr) {
+              var pill = sr.querySelector('.result-hub-pill');
+              if (pill) { pill.textContent = 'Draft'; pill.className = 'result-hub-pill result-hub-pill-draft'; }
+              var actionsTd = sr.querySelector('td.result-hub-actions');
+              if (actionsTd) {
+                actionsTd.innerHTML = '<a href="#" class="result-hub-btn-inline result-hub-btn-edit" target="_blank" title="View full summary">View</a> <button type="button" class="result-hub-btn-inline result-hub-btn-approve hub-summary-approve-btn" data-summary-id="' + id + '" title="Approve summary">Approve</button>';
+                actionsTd.querySelector('.hub-summary-approve-btn').addEventListener('click', function() {
+                  if (summaryIdsInput) summaryIdsInput.value = id;
+                  if (resultIdsInput) resultIdsInput.value = '';
+                  if (approveSummaryFlag) approveSummaryFlag.value = '1';
+                  if (unapproveSummaryFlag) unapproveSummaryFlag.value = '';
+                  form.dispatchEvent(new Event('submit', { cancelable: true }));
+                });
+              }
+            }
+          });
+          showToast(data.message || 'Done');
+          updateBulkBar();
+          requestAnimationFrame(function() {
+            window.scrollTo(0, scrollY);
+            requestAnimationFrame(function() { window.scrollTo(0, scrollY); });
+          });
+        })
+        .catch(function() { showToast('Request failed'); window.scrollTo(0, scrollY); form.submit(); });
+    }
+  });
+})();
+</script>

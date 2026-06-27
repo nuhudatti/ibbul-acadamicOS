@@ -1,0 +1,72 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<style>
+    .select2-container {
+        width: 100% !important;
+        min-width: 300px;
+    }
+    .select2-container--default .select2-selection--single {
+        height: 38px;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        padding: 4px 8px;
+    }
+    .select2-container--default .select2-selection--single:focus {
+        border-color: #417690;
+        outline: none;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+        line-height: 30px;
+        padding-left: 0;
+        color: #333;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 36px;
+        right: 8px;
+    }
+    .select2-dropdown {
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+    }
+    select.form-control {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23374151' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 35px;
+        cursor: pointer;
+    }
+</style>
+{% endblock %}
+
+{% block admin_change_form_document_ready %}
+{{ block.super }}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+    (function($) {
+        $(document).ready(function() {
+            // Initialize Select2 for student and course fields
+            $('#id_student, #id_course').select2({
+                placeholder: 'Search or select...',
+                allowClear: true,
+                width: '100%'
+            });
+            
+            // Fix semester dropdown styling
+            $('#id_semester').css({
+                'width': '100%',
+                'padding': '8px 35px 8px 12px',
+                'border': '1px solid #d1d5db',
+                'border-radius': '4px',
+                'background-color': 'white',
+                'cursor': 'pointer'
+            });
+        });
+    })(django.jQuery);
+</script>
+{% endblock %}

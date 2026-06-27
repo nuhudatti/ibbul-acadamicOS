@@ -1,0 +1,551 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .ca-bulk-page {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 6px 0 40px;
+  }
+  .ca-bulk-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 20px;
+    padding: 6px 0;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+  .ca-bulk-back:hover { color: #059669; }
+  .ca-bulk-back svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  .ca-bulk-hero { margin-bottom: 24px; }
+  .ca-bulk-hero h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 6px;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+  }
+  .ca-bulk-hero p {
+    margin: 0;
+    font-size: 14px;
+    color: #64748b;
+    line-height: 1.5;
+  }
+
+  .ca-bulk-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    padding: 24px 28px;
+    margin-bottom: 20px;
+  }
+
+  .ca-bulk-form .form-row { margin-bottom: 0; padding-bottom: 20px; }
+  .ca-bulk-form .form-row:last-of-type { padding-bottom: 0; }
+  .ca-bulk-form .form-row + .form-row-actions { padding-top: 4px; }
+  .ca-bulk-form .field-label {
+    display: block;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    color: #475569;
+    margin-bottom: 8px;
+  }
+  .ca-bulk-form .errornote { margin-top: 6px; font-size: 13px; color: #dc2626; }
+
+  /* ----- Lecturer combobox: compact ----- */
+  .ca-lecturer-wrap { position: relative; width: 100%; }
+  .ca-lecturer-wrap .ca-select-native {
+    position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+  }
+  .ca-lecturer-search {
+    display: block;
+    width: 100%;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 10px 12px 10px 12px;
+    font-size: 14px;
+    line-height: 1.25;
+    color: #0f172a;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .ca-lecturer-search::placeholder { color: #94a3b8; }
+  .ca-lecturer-search:hover { border-color: #cbd5e1; }
+  .ca-lecturer-search:focus {
+    outline: none;
+    border-color: #059669;
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+  }
+  .ca-lecturer-wrap.has-selection .ca-lecturer-search { padding-right: 40px; }
+  .ca-lecturer-clear {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+    font-weight: 300;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    border-radius: 0 8px 8px 0;
+    cursor: pointer;
+    transition: color 0.2s, background 0.2s;
+  }
+  .ca-lecturer-wrap.has-selection .ca-lecturer-clear { display: flex; }
+  .ca-lecturer-clear:hover { color: #475569; background: #f1f5f9; }
+  .ca-lecturer-dropdown {
+    position: absolute;
+    z-index: 100;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 240px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    display: none;
+  }
+  .ca-lecturer-dropdown.open { display: block; }
+  .ca-lecturer-option {
+    display: block;
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 14px;
+    text-align: left;
+    color: #334155;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .ca-lecturer-option:hover,
+  .ca-lecturer-option.highlight { background: #f0fdf4; color: #047857; }
+  .ca-lecturer-empty { padding: 12px 14px; font-size: 13px; color: #94a3b8; }
+
+  /* ----- Course search: compact, filter as you type ----- */
+  .ca-course-search-wrap { position: relative; margin-bottom: 10px; }
+  .ca-course-search {
+    display: block;
+    width: 100%;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 10px 40px 10px 12px;
+    font-size: 14px;
+    line-height: 1.25;
+    color: #0f172a;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .ca-course-search::placeholder { color: #94a3b8; }
+  .ca-course-search:focus {
+    outline: none;
+    border-color: #059669;
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+  }
+  .ca-course-search-wrap.has-text .ca-course-search { padding-right: 40px; }
+  .ca-course-search-clear {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+    font-weight: 300;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    border-radius: 0 8px 8px 0;
+    cursor: pointer;
+    transition: color 0.2s, background 0.2s;
+  }
+  .ca-course-search-wrap.has-text .ca-course-search-clear { display: flex; }
+  .ca-course-search-clear:hover { color: #475569; background: #f1f5f9; }
+
+  .ca-field-courses-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .ca-field-courses-header .field-label { margin-bottom: 0; }
+  .ca-course-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .ca-course-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: #059669;
+    background: #f0fdf4;
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+  .ca-course-meta .ca-list-actions { display: flex; gap: 6px; }
+  .ca-course-meta .ca-list-actions button {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #059669;
+    background: transparent;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  .ca-course-meta .ca-list-actions button:hover {
+    background: #f0fdf4;
+    color: #047857;
+  }
+
+  .ca-bulk-form .checkbox-list {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    background: #fafafa;
+  }
+  .ca-bulk-form .checkbox-list:focus-within {
+    border-color: #059669;
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.08);
+  }
+  .ca-bulk-form .checkbox-list label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 2px;
+    font-weight: 400;
+    font-size: 14px;
+    color: #334155;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.12s ease;
+  }
+  .ca-bulk-form .checkbox-list label:hover { background: #f1f5f9; }
+  .ca-bulk-form .checkbox-list label.ca-course-hidden { display: none; }
+  .ca-bulk-form .checkbox-list label:last-child { margin-bottom: 0; }
+  .ca-bulk-form .checkbox-list input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #059669;
+    flex-shrink: 0;
+  }
+
+  .ca-bulk-summary {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #166534;
+  }
+  .ca-bulk-summary.visible { display: flex; flex-wrap: wrap; }
+  .ca-bulk-summary strong { font-weight: 600; }
+
+  .ca-bulk-form .form-row-actions {
+    padding-top: 20px;
+    border-top: 1px solid #e5e7eb;
+    margin-top: 4px;
+  }
+  .ca-bulk-form button[type="submit"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 42px;
+    padding: 0 22px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    background: linear-gradient(180deg, #059669 0%, #047857 100%);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(5, 150, 105, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .ca-bulk-form button[type="submit"]:hover {
+    background: linear-gradient(180deg, #047857 0%, #065f46 100%);
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.35);
+    transform: translateY(-1px);
+  }
+  .ca-bulk-form button[type="submit"]:active { transform: translateY(0); }
+  .ca-bulk-form button[type="submit"] svg { width: 18px; height: 18px; flex-shrink: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ca-bulk-page">
+  <a href="{% url 'admin:academics_courseassignment_changelist' %}" class="ca-bulk-back">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+    Back to Course assignments
+  </a>
+
+  <div class="ca-bulk-hero">
+    <h1>{{ title }}</h1>
+    <p>Type to search and select a lecturer, then choose courses. List updates as you type.</p>
+  </div>
+
+  <div class="ca-bulk-card">
+    <form method="post" class="ca-bulk-form" id="ca-bulk-form">
+      {% csrf_token %}
+      <div class="form-row field-lecturer">
+        <label for="ca-lecturer-search-input" class="field-label">{{ form.examiner.label }}</label>
+        <div class="ca-lecturer-wrap" id="ca-lecturer-wrap">
+          <select id="id_examiner" name="examiner" class="ca-select-native" required aria-hidden="true" tabindex="-1">
+            {% for value, label in form.examiner.field.choices %}
+            <option value="{{ value }}" {% if form.examiner.value|stringformat:"s" == value|stringformat:"s" %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <input type="text" class="ca-lecturer-search" id="ca-lecturer-search-input" autocomplete="off" placeholder="Type to search by name or email…" aria-label="Search lecturer" aria-expanded="false" aria-haspopup="listbox" aria-controls="ca-lecturer-list" role="combobox">
+          <button type="button" class="ca-lecturer-clear" id="ca-lecturer-clear" aria-label="Clear lecturer">×</button>
+          <div class="ca-lecturer-dropdown" id="ca-lecturer-list" role="listbox" aria-label="Lecturer options"></div>
+        </div>
+        {% if form.examiner.errors %}<p class="errornote">{{ form.examiner.errors.0 }}</p>{% endif %}
+      </div>
+
+      <div class="form-row field-courses">
+        <div class="ca-field-courses-header">
+          <span class="field-label">{{ form.courses.label }}</span>
+          <div class="ca-course-meta">
+            <span class="ca-course-count" id="ca-selected-count">0 selected</span>
+            <div class="ca-list-actions">
+              <button type="button" class="ca-select-all" aria-label="Select all visible">Select all</button>
+              <button type="button" class="ca-clear-all" aria-label="Clear selection">Clear</button>
+            </div>
+          </div>
+        </div>
+        <div class="ca-course-search-wrap" id="ca-course-search-wrap">
+          <input type="text" class="ca-course-search" id="ca-course-search" placeholder="Type to search courses…" aria-label="Search courses" autocomplete="off">
+          <button type="button" class="ca-course-search-clear" id="ca-course-search-clear" aria-label="Clear search">×</button>
+        </div>
+        <div class="checkbox-list" id="ca-course-list">
+          {{ form.courses }}
+        </div>
+        {% if form.courses.errors %}<p class="errornote">{{ form.courses.errors.0 }}</p>{% endif %}
+      </div>
+
+      <div class="ca-bulk-summary" id="ca-bulk-summary" role="status">
+        <strong>Summary:</strong>
+        <span id="ca-summary-text">Assigning <strong id="ca-summary-n">0</strong> course(s) to <strong id="ca-summary-lecturer">—</strong>.</span>
+      </div>
+
+      <div class="form-row form-row-actions">
+        <button type="submit">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Assign courses to lecturer
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+  var form = document.getElementById('ca-bulk-form');
+  if (!form) return;
+
+  var selectEl = form.querySelector('#id_examiner');
+  var wrap = document.getElementById('ca-lecturer-wrap');
+  var searchInput = document.getElementById('ca-lecturer-search-input');
+  var clearBtn = document.getElementById('ca-lecturer-clear');
+  var dropdown = document.getElementById('ca-lecturer-list');
+  var options = [];
+  for (var i = 0; i < selectEl.options.length; i++) {
+    var opt = selectEl.options[i];
+    if (opt.value) options.push({ value: opt.value, text: opt.text.trim() });
+  }
+  var selectedIndex = -1;
+  function renderLecturerList(filter) {
+    var q = (filter || '').toLowerCase().trim();
+    var list = q ? options.filter(function(o) { return o.text.toLowerCase().indexOf(q) !== -1; }) : options.slice();
+    dropdown.innerHTML = '';
+    if (list.length === 0) {
+      dropdown.innerHTML = '<div class="ca-lecturer-empty">No match for "' + (q.slice(0, 40)) + (q.length > 40 ? '…' : '') + '"</div>';
+      return;
+    }
+    list.forEach(function(item, idx) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ca-lecturer-option' + (idx === selectedIndex ? ' highlight' : '');
+      btn.textContent = item.text;
+      btn.setAttribute('role', 'option');
+      btn.dataset.value = item.value;
+      btn.dataset.text = item.text;
+      btn.addEventListener('click', function() {
+        selectEl.value = item.value;
+        searchInput.value = item.text;
+        wrap.classList.add('has-selection');
+        dropdown.classList.remove('open');
+        searchInput.setAttribute('aria-expanded', 'false');
+        updateSummary();
+      });
+      dropdown.appendChild(btn);
+    });
+  }
+  function openDropdown() {
+    dropdown.classList.add('open');
+    searchInput.setAttribute('aria-expanded', 'true');
+    selectedIndex = 0;
+    renderLecturerList(searchInput.value);
+  }
+  function closeDropdown() {
+    dropdown.classList.remove('open');
+    searchInput.setAttribute('aria-expanded', 'false');
+    selectedIndex = -1;
+  }
+  searchInput.addEventListener('focus', function() { openDropdown(); });
+  searchInput.addEventListener('input', function() {
+    wrap.classList.remove('has-selection');
+    selectEl.value = '';
+    selectedIndex = 0;
+    renderLecturerList(searchInput.value);
+    if (options.length) openDropdown();
+  });
+  searchInput.addEventListener('keydown', function(e) {
+    if (!dropdown.classList.contains('open')) return;
+    var opts = dropdown.querySelectorAll('.ca-lecturer-option');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedIndex = Math.min(selectedIndex + 1, opts.length - 1);
+      renderLecturerList(searchInput.value);
+      opts[selectedIndex] && opts[selectedIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedIndex = Math.max(selectedIndex - 1, 0);
+      renderLecturerList(searchInput.value);
+      opts[selectedIndex] && opts[selectedIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && opts[selectedIndex]) {
+      e.preventDefault();
+      opts[selectedIndex].click();
+    } else if (e.key === 'Escape') {
+      closeDropdown();
+      searchInput.blur();
+    }
+  });
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      selectEl.value = '';
+      searchInput.value = '';
+      wrap.classList.remove('has-selection');
+      searchInput.focus();
+      openDropdown();
+      updateSummary();
+    });
+  }
+  document.addEventListener('click', function(e) {
+    if (wrap && !wrap.contains(e.target)) closeDropdown();
+  });
+  if (selectEl.value) {
+    var sel = options.filter(function(o) { return o.value === selectEl.value; })[0];
+    if (sel) {
+      searchInput.value = sel.text;
+      wrap.classList.add('has-selection');
+    }
+  }
+  renderLecturerList('');
+
+  var courseList = document.getElementById('ca-course-list');
+  var courseSearch = document.getElementById('ca-course-search');
+  var courseSearchWrap = document.getElementById('ca-course-search-wrap');
+  var courseSearchClear = document.getElementById('ca-course-search-clear');
+  var courseLabels = courseList ? courseList.querySelectorAll('label') : [];
+  function filterCourses() {
+    var q = (courseSearch.value || '').toLowerCase().trim();
+    if (courseSearchWrap) courseSearchWrap.classList.toggle('has-text', q.length > 0);
+    courseLabels.forEach(function(label) {
+      var text = (label.textContent || '').toLowerCase();
+      var show = !q || text.indexOf(q) !== -1;
+      label.classList.toggle('ca-course-hidden', !show);
+    });
+    updateSelectedCount();
+  }
+  if (courseSearch) {
+    courseSearch.addEventListener('input', filterCourses);
+    courseSearch.addEventListener('keyup', filterCourses);
+  }
+  if (courseSearchClear) {
+    courseSearchClear.addEventListener('click', function() {
+      courseSearch.value = '';
+      courseSearchWrap.classList.remove('has-text');
+      filterCourses();
+      courseSearch.focus();
+    });
+  }
+
+  function visibleCheckboxes() {
+    var q = (courseSearch && courseSearch.value || '').toLowerCase().trim();
+    var boxes = courseList ? courseList.querySelectorAll('input[type="checkbox"]') : [];
+    if (!q) return boxes;
+    return Array.prototype.filter.call(boxes, function(cb) {
+      var label = cb.closest('label');
+      return label && !label.classList.contains('ca-course-hidden');
+    });
+  }
+  var selectAllBtn = form.querySelector('.ca-select-all');
+  var clearAllBtn = form.querySelector('.ca-clear-all');
+  if (selectAllBtn) selectAllBtn.addEventListener('click', function() { visibleCheckboxes().forEach(function(cb) { cb.checked = true; }); updateSelectedCount(); updateSummary(); });
+  if (clearAllBtn) clearAllBtn.addEventListener('click', function() { visibleCheckboxes().forEach(function(cb) { cb.checked = false; }); updateSelectedCount(); updateSummary(); });
+
+  function updateSelectedCount() {
+    var boxes = courseList ? courseList.querySelectorAll('input[type="checkbox"]:checked') : [];
+    var el = document.getElementById('ca-selected-count');
+    if (el) el.textContent = boxes.length + ' selected';
+  }
+  function updateSummary() {
+    var n = courseList ? courseList.querySelectorAll('input[type="checkbox"]:checked').length : 0;
+    var lecturerText = searchInput && searchInput.value && selectEl.value ? searchInput.value : '—';
+    var summary = document.getElementById('ca-bulk-summary');
+    var summaryN = document.getElementById('ca-summary-n');
+    var summaryLecturer = document.getElementById('ca-summary-lecturer');
+    if (summaryN) summaryN.textContent = n;
+    if (summaryLecturer) summaryLecturer.textContent = lecturerText;
+    if (summary) summary.classList.toggle('visible', n > 0 && !!selectEl.value);
+  }
+  courseList && courseList.addEventListener('change', function() { updateSelectedCount(); updateSummary(); });
+  updateSelectedCount();
+  updateSummary();
+})();
+</script>
+{% endblock %}

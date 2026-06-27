@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block bodyclass %}{{ block.super }}{% if is_examiner %} lecturer-no-sidebar{% endif %}{% endblock %}
+
+{% block branding %}
+<h1 id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></h1>
+{% endblock %}
+
+{% block nav-global %}{% endblock %}
+
+{# Lecturer: no sidebar. Others (HOD, Faculty Admin, Super Admin): default app list sidebar. #}
+{% block nav-sidebar %}
+  {% if is_examiner %}
+    {# No sidebar for lecturer — completely removed #}
+  {% else %}
+    {{ block.super }}
+  {% endif %}
+{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+{% if is_examiner %}
+<style>
+  /* Lecturer: remove sidebar completely, full-width content */
+  body.lecturer-no-sidebar #nav-sidebar { display: none !important; }
+  body.lecturer-no-sidebar #main { margin-left: 0 !important; max-width: none !important; }
+  body.lecturer-no-sidebar.main #main { margin-left: 0 !important; }
+  @media (min-width: 768px) {
+    body.lecturer-no-sidebar #main { margin-left: 0 !important; }
+  }
+</style>
+{% endif %}
+{% endblock %}

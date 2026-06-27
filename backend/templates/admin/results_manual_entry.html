@@ -1,0 +1,55 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+    <h1>Manual Result Entry</h1>
+    
+    <form method="post">
+        {% csrf_token %}
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Student *</label>
+            <select name="student_id" required style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                <option value="">Select Student</option>
+                {% for student in students %}
+                <option value="{{ student.student_id }}">{{ student.student_id }} - {{ student.first_name }} {{ student.last_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Course *</label>
+            <select name="course_code" required style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                <option value="">Select Course</option>
+                {% for course in courses %}
+                <option value="{{ course.code }}">{{ course.code }} - {{ course.title }} ({{ course.credit_units }} units)</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Score (0-100) *</label>
+            <input type="number" name="score" min="0" max="100" step="0.01" required 
+                   style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Session *</label>
+            <input type="text" name="session" value="2023/2024" required placeholder="e.g., 2023/2024"
+                   style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Semester *</label>
+            <select name="semester" required style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                <option value="FIRST">First Semester</option>
+                <option value="SECOND">Second Semester</option>
+            </select>
+        </div>
+        
+        <button type="submit" style="background: #417690; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+            Submit Result
+        </button>
+        <a href=".." style="margin-left: 10px; padding: 10px 20px; display: inline-block;">Cancel</a>
+    </form>
+</div>
+{% endblock %}

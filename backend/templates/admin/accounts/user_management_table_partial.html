@@ -1,0 +1,41 @@
+{% for u in users %}
+<tr data-user-id="{{ u.pk }}">
+    <td class="checkbox-cell"><input type="checkbox" name="user_ids[]" value="{{ u.pk }}" form="bulk-form" class="user-select" aria-label="Select {{ u.get_full_name }}"></td>
+    <td><strong>{{ u.student_id|default:u.email|default:"—" }}</strong></td>
+    <td>{{ u.get_full_name }}</td>
+    <td><span class="badge badge-role">{{ u.get_role_display }}</span></td>
+    <td>{{ u.email|default:"—" }}</td>
+    <td>
+        {% if u.is_active %}
+        <span class="badge badge-active">Active</span>
+        {% else %}
+        <span class="badge badge-inactive">Inactive</span>
+        {% endif %}
+    </td>
+    <td title="{% if u.is_first_login %}User must set password on next login{% else %}User has set their password{% endif %}">
+        {% if u.is_first_login %}
+        <span class="badge badge-warning">Must change</span>
+        {% else %}
+        <span class="badge badge-muted">Set</span>
+        {% endif %}
+    </td>
+    <td>{% if u.last_login %}{{ u.last_login|timesince }} ago{% else %}Never{% endif %}</td>
+    <td class="actions-cell">
+        <div class="dropdown-actions">
+            <button type="button" class="btn-sm btn-dropdown" aria-haspopup="true" aria-expanded="false" data-dropdown-for="actions-{{ u.pk }}">Actions ▾</button>
+            <div id="actions-{{ u.pk }}" class="dropdown-menu" role="menu" hidden>
+                <a href="#" data-action="reset-temp" data-user-id="{{ u.pk }}" data-name="{{ u.get_full_name }}">Reset to temporary password</a>
+                <a href="#" data-action="custom-password" data-user-id="{{ u.pk }}" data-name="{{ u.get_full_name }}">Set custom password</a>
+                {% if u.is_active %}
+                <a href="#" data-action="deactivate" data-user-id="{{ u.pk }}" data-name="{{ u.get_full_name }}">Deactivate</a>
+                {% else %}
+                <a href="#" data-action="activate" data-user-id="{{ u.pk }}" data-name="{{ u.get_full_name }}">Activate</a>
+                {% endif %}
+                <a href="{% url 'admin:accounts_auditlog_changelist' %}?user__id__exact={{ u.pk }}" target="_blank">View audit history</a>
+            </div>
+        </div>
+    </td>
+</tr>
+{% empty %}
+<tr><td colspan="9" class="empty-state">No users match the current filters.</td></tr>
+{% endfor %}

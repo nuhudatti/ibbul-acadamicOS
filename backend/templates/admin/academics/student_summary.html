@@ -1,0 +1,494 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  /* ——— Student Summary: timeless, tech-giant grade UI ——— */
+  .student-summary-page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 24px 48px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  .student-summary-page .breadcrumb {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 24px;
+  }
+  .student-summary-page .breadcrumb a {
+    color: #0d9488;
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .student-summary-page .breadcrumb a:hover { text-decoration: underline; }
+  .student-summary-page .breadcrumb span { color: #0f172a; font-weight: 600; }
+  .student-summary-page .page-header {
+    margin-bottom: 8px;
+  }
+  .student-summary-page h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .student-summary-page .page-desc {
+    color: #64748b;
+    font-size: 15px;
+    line-height: 1.5;
+    margin-bottom: 32px;
+    max-width: 640px;
+  }
+
+  /* Form card */
+  .student-summary-page .form-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 28px 32px;
+    margin-bottom: 32px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.06), 0 2px 4px -2px rgba(0,0,0,0.04);
+  }
+  .student-summary-page .form-card .form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px 32px;
+    align-items: flex-end;
+  }
+  .student-summary-page .form-card .form-group {
+    flex: 0 0 auto;
+  }
+  .student-summary-page .form-card label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #374151;
+    font-size: 14px;
+  }
+  /* Inputs and selects: full content visible, comfortable height */
+  .student-summary-page .form-card select,
+  .student-summary-page .form-card input[type="text"] {
+    width: 100%;
+    min-width: 200px;
+    max-width: 420px;
+    padding: 14px 16px;
+    min-height: 48px;
+    height: 48px;
+    line-height: 1.35;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 15px;
+    color: #0f172a;
+    background: #fff;
+    box-sizing: border-box;
+  }
+  .student-summary-page .form-card select {
+    cursor: pointer;
+    appearance: auto;
+  }
+  .student-summary-page .form-card select:focus,
+  .student-summary-page .form-card input[type="text"]:focus {
+    outline: none;
+    border-color: #0d9488;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+  }
+  .student-summary-page .btn-view {
+    background: #0d9488;
+    color: #fff;
+    padding: 14px 24px;
+    min-height: 48px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.05s;
+  }
+  .student-summary-page .btn-view:hover {
+    background: #0f766e;
+    transform: translateY(-1px);
+  }
+  .student-summary-page .btn-view:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.3);
+  }
+
+  /* Searchable student combobox */
+  .student-summary-page .student-combobox-wrap {
+    position: relative;
+    max-width: 420px;
+    min-width: 280px;
+  }
+  .student-summary-page .student-combobox-wrap input[type="text"].student-search {
+    width: 100%;
+    padding: 14px 16px 14px 40px;
+    min-height: 48px;
+    height: 48px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 15px;
+    background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat 12px center;
+    box-sizing: border-box;
+  }
+  .student-summary-page .student-combobox-wrap input.student-search::placeholder {
+    color: #94a3b8;
+  }
+  .student-summary-page .student-combobox-wrap .student-dropdown {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.06);
+    z-index: 100;
+    display: none;
+  }
+  .student-summary-page .student-combobox-wrap .student-dropdown.open {
+    display: block;
+  }
+  .student-summary-page .student-combobox-wrap .student-option {
+    display: block;
+    width: 100%;
+    padding: 12px 16px;
+    text-align: left;
+    border: none;
+    background: none;
+    font-size: 14px;
+    color: #0f172a;
+    cursor: pointer;
+    line-height: 1.4;
+  }
+  .student-summary-page .student-combobox-wrap .student-option:hover,
+  .student-summary-page .student-combobox-wrap .student-option.highlight {
+    background: #f0fdf4;
+    color: #0d9488;
+  }
+  .student-summary-page .student-combobox-wrap .student-option .sid { font-weight: 600; color: #0f172a; }
+  .student-summary-page .student-combobox-wrap .student-option .name { color: #64748b; margin-left: 6px; }
+  .student-summary-page .student-combobox-wrap .student-dropdown .no-results {
+    padding: 16px;
+    color: #64748b;
+    font-size: 14px;
+    text-align: center;
+  }
+  input#student_id_hidden {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* Summary & results cards */
+  .student-summary-page .summary-table-wrap,
+  .student-summary-page .results-table-wrap {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 32px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.06), 0 2px 4px -2px rgba(0,0,0,0.04);
+  }
+  .student-summary-page .section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #334155;
+    padding: 20px 24px 12px;
+    margin: 0;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .student-summary-page .summary-table-wrap table,
+  .student-summary-page .results-table-wrap table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .student-summary-page .summary-table-wrap th,
+  .student-summary-page .results-table-wrap th {
+    background: #f8fafc;
+    padding: 14px 20px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .student-summary-page .summary-table-wrap td,
+  .student-summary-page .results-table-wrap td {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+    min-height: 52px;
+    line-height: 1.45;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+  .student-summary-page .summary-table-wrap td {
+    min-height: 56px;
+  }
+  .student-summary-page .summary-table-wrap tr:last-child td,
+  .student-summary-page .results-table-wrap tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .student-summary-page .results-table-wrap .grade-f {
+    color: #dc2626;
+    font-weight: 600;
+  }
+  .student-summary-page .summary-table-wrap td:nth-child(9),
+  .student-summary-page .summary-table-wrap td:nth-child(10) {
+    max-width: 220px;
+    min-width: 120px;
+  }
+  .student-summary-page .empty-results {
+    padding: 48px 24px;
+    text-align: center;
+    color: #64748b;
+    font-size: 15px;
+  }
+  .student-summary-page .error-msg {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+    padding: 16px 20px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    font-weight: 500;
+  }
+  .student-summary-page .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 20px;
+    color: #0d9488;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .student-summary-page .back-link:hover { text-decoration: underline; color: #0f766e; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="student-summary-page">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'admin:index' %}">Dashboard</a>
+    &rsaquo;
+    <a href="{% url 'admin:academics_result_changelist' %}">Results</a>
+    &rsaquo;
+    <span>Student summary</span>
+  </nav>
+  <a href="{% url 'admin:academics_result_changelist' %}" class="back-link">← Back to Results</a>
+  <header class="page-header">
+    <h1>Student result summary</h1>
+  </header>
+  <p class="page-desc">Select a student (search by ID or name), session, and semester to view their summary (RCU, ECU, CP, GPA, CGPA, REMARKS) and all course results for that term.</p>
+
+  <div class="form-card">
+    <form method="get" action="{% url 'admin:academics_result_student_summary' %}" id="student-summary-form">
+      <div class="form-row">
+        <div class="form-group student-combobox-wrap">
+          <label for="student_search">Student</label>
+          <input type="text" class="student-search" id="student_search" autocomplete="off" placeholder="Search by student ID or name…" value="{% if student_id %}{% for s in students %}{% if s.student_id == student_id %}{{ s.student_id }} — {{ s.get_full_name|default:"" }}{% endif %}{% endfor %}{% endif %}">
+          <input type="hidden" name="student_id" id="student_id_hidden" value="{{ student_id }}">
+          <div class="student-dropdown" id="student_dropdown" role="listbox" aria-label="Students">
+            {% for s in students %}
+            <button type="button" class="student-option" role="option" data-value="{{ s.student_id }}" data-label="{{ s.student_id }} — {{ s.get_full_name }}">
+              <span class="sid">{{ s.student_id }}</span><span class="name">— {{ s.get_full_name }}</span>
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="session">Session</label>
+          <input type="text" name="session" id="session" value="{{ session_val }}" placeholder="e.g. 2023/2024" required>
+        </div>
+        <div class="form-group">
+          <label for="semester">Semester</label>
+          <select name="semester" id="semester">
+            <option value="FIRST" {% if semester_val == 'FIRST' %}selected{% endif %}>First Semester</option>
+            <option value="SECOND" {% if semester_val == 'SECOND' %}selected{% endif %}>Second Semester</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <button type="submit" class="btn-view">View summary</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  {% if summary_data %}
+  <div class="summary-table-wrap">
+    <h2 class="section-title">Summary</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>RCU</th>
+          <th>ECU</th>
+          <th>CP</th>
+          <th>GPA</th>
+          <th>TRCU</th>
+          <th>TECU</th>
+          <th>TCP</th>
+          <th>CGPA</th>
+          <th>Outstanding courses</th>
+          <th>Remarks</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{% if stored_summary %}{{ stored_summary.rcu }}{% else %}{{ summary_data.registered_credit_units }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ stored_summary.ecu }}{% else %}{{ summary_data.earned_credit_units }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ stored_summary.cp }}{% else %}{{ summary_data.credit_points }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ summary_data.gpa }}{% else %}{{ summary_data.gpa }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ stored_summary.trcu }}{% else %}{{ summary_data.total_registered_credit_units }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ stored_summary.tecu }}{% else %}{{ summary_data.total_earned_credit_units }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ stored_summary.tcp }}{% else %}{{ summary_data.total_credit_points }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ summary_data.cgpa }}{% else %}{{ summary_data.cgpa }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ stored_summary.outstanding_courses|default:"" }}{% else %}{{ summary_data.outstanding_courses|default:"—" }}{% endif %}</td>
+          <td>{% if stored_summary %}{{ stored_summary.remarks|default:"" }}{% else %}{{ summary_data.remarks|default:"—" }}{% endif %}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="results-table-wrap">
+    <h2 class="section-title">Course results ({{ session_val }}, {{ semester_val }}) — {{ results_list|length }} course{{ results_list|length|pluralize }}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Course</th>
+          <th>Score</th>
+          <th>Grade</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results_list %}
+        <tr>
+          <td>{{ r.course.code }} — {{ r.course.title }}</td>
+          <td>{{ r.get_score_display }}</td>
+          <td class="{% if r.grade == 'F' %}grade-f{% endif %}">{{ r.grade|default:"—" }}</td>
+          <td>{{ r.get_status_display|default:r.status }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="empty-results">No results for this session/semester.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif student_id %}
+  <p class="error-msg">Student not found or not in your scope. Choose a student from the list above.</p>
+  {% endif %}
+</div>
+
+<script>
+(function() {
+  var searchInput = document.getElementById('student_search');
+  var hiddenInput = document.getElementById('student_id_hidden');
+  var dropdown = document.getElementById('student_dropdown');
+  var form = document.getElementById('student-summary-form');
+  if (!searchInput || !dropdown) return;
+
+  var options = dropdown.querySelectorAll('.student-option');
+  var currentHighlight = -1;
+
+  function filterOptions() {
+    var q = (searchInput.value || '').trim().toLowerCase();
+    var visible = 0;
+    options.forEach(function(opt) {
+      var label = (opt.getAttribute('data-label') || '').toLowerCase();
+      var show = !q || label.indexOf(q) >= 0;
+      opt.style.display = show ? 'block' : 'none';
+      if (show) visible++;
+    });
+    var noResults = dropdown.querySelector('.no-results');
+    if (visible === 0 && !noResults) {
+      noResults = document.createElement('div');
+      noResults.className = 'no-results';
+      noResults.textContent = 'No matching student';
+      dropdown.appendChild(noResults);
+    }
+    if (noResults) noResults.style.display = visible === 0 ? 'block' : 'none';
+    return visible;
+  }
+
+  function openDropdown() {
+    dropdown.classList.add('open');
+    filterOptions();
+    currentHighlight = -1;
+  }
+
+  function closeDropdown() {
+    dropdown.classList.remove('open');
+    currentHighlight = -1;
+  }
+
+  function selectOption(opt) {
+    var val = opt.getAttribute('data-value');
+    var label = opt.getAttribute('data-label');
+    hiddenInput.value = val;
+    searchInput.value = label;
+    searchInput.setAttribute('aria-activedescendant', '');
+    closeDropdown();
+  }
+
+  searchInput.addEventListener('focus', openDropdown);
+  searchInput.addEventListener('input', function() {
+    hiddenInput.value = '';
+    openDropdown();
+  });
+  searchInput.addEventListener('keydown', function(e) {
+    if (!dropdown.classList.contains('open')) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter') openDropdown();
+      return;
+    }
+    var visible = Array.prototype.filter.call(options, function(o) { return o.style.display !== 'none'; });
+    if (e.key === 'Escape') { closeDropdown(); return; }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      currentHighlight = Math.min(currentHighlight + 1, visible.length - 1);
+      visible.forEach(function(o, i) { o.classList.toggle('highlight', i === currentHighlight); });
+      if (visible[currentHighlight]) visible[currentHighlight].scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      currentHighlight = Math.max(currentHighlight - 1, -1);
+      visible.forEach(function(o, i) { o.classList.toggle('highlight', i === currentHighlight); });
+      return;
+    }
+    if (e.key === 'Enter' && currentHighlight >= 0 && visible[currentHighlight]) {
+      e.preventDefault();
+      selectOption(visible[currentHighlight]);
+    }
+  });
+
+  dropdown.querySelectorAll('.student-option').forEach(function(opt) {
+    opt.addEventListener('click', function() { selectOption(opt); });
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) closeDropdown();
+  });
+
+  form.addEventListener('submit', function() {
+    if (!hiddenInput.value && searchInput.value.trim()) {
+      var first = dropdown.querySelector('.student-option[style=""]') || dropdown.querySelector('.student-option[style="display: block;"]');
+      if (first) {
+        hiddenInput.value = first.getAttribute('data-value');
+        searchInput.value = first.getAttribute('data-label');
+      }
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-academics model-result change-list result-hub-page{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Dashboard</a>
+  &rsaquo;
+  Results
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main" class="result-hub-main">
+  {% if scope_info and scope_info.is_scoped and not show_lecturer_ui and not is_examiner %}
+  <div class="result-hub-banner result-hub-banner-scope">
+    <strong>Viewing: {{ scope_info.scope_label }}</strong>
+    <span>Only results in your {{ scope_info.scope_type }} are shown.</span>
+  </div>
+  {% endif %}
+  {% if show_lecturer_ui or is_examiner %}
+  {% include "admin/lecturer_nav.html" with current_page="result" %}
+  <div class="result-hub-banner result-hub-banner-lecturer">
+    <strong>View results — your assigned courses only</strong>
+    <span>View only. Data is scoped to you.</span>
+  </div>
+  {% endif %}
+
+  <header class="result-hub-header">
+    <h1 class="result-hub-title">Results</h1>
+    {% if not show_lecturer_ui and not is_examiner %}
+    <div class="result-hub-actions">
+      <a href="{% url 'admin:academics_result_student_summary' %}" class="result-hub-btn result-hub-btn-secondary">View student summary</a>
+      <a href="{% url 'admin:academics_resultuploadbatch_changelist' %}" class="result-hub-btn result-hub-btn-amber">Approve upload batches</a>
+      <a href="{% url 'admin:academics_result_upload_results' %}" class="result-hub-btn result-hub-btn-primary">Upload results</a>
+    </div>
+    {% endif %}
+  </header>
+
+  {% include "admin/academics/result/results_hub_table.html" %}
+</div>
+{% endblock %}

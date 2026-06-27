@@ -1,0 +1,321 @@
+@tailwind base;
+
+@tailwind components;
+
+@tailwind utilities;
+
+
+
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap');
+
+
+
+:root {
+
+  --color-brand-primary: #0F6B3E;
+
+  --color-brand-accent:  #C9A227;
+
+  --color-navy:          #062b1a;
+
+  --color-surface:       #f4f6f8;
+
+  --color-border:        #e2e8f0;
+
+  --color-text-primary:  #0f172a;
+
+  --color-text-secondary:#475569;
+
+  --color-text-muted:    #94a3b8;
+
+
+
+  --sidebar-width:           260px;
+
+  --sidebar-width-collapsed:   72px;
+
+  --topbar-height:             64px;
+
+}
+
+
+
+*,
+
+*::before,
+
+*::after {
+
+  box-sizing: border-box;
+
+  margin: 0;
+
+  padding: 0;
+
+}
+
+
+
+html {
+
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  font-size: 14px;
+
+  line-height: 1.5;
+
+  -webkit-font-smoothing: antialiased;
+
+  -moz-osx-font-smoothing: grayscale;
+
+  scroll-behavior: smooth;
+
+}
+
+
+
+body {
+
+  background-color: var(--color-surface);
+
+  color: var(--color-text-primary);
+
+  min-height: 100dvh;
+
+  overflow-x: hidden;
+
+}
+
+
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+
+::-webkit-scrollbar-track { background: transparent; }
+
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+
+
+
+:focus-visible {
+
+  outline: 2px solid var(--color-brand-primary);
+
+  outline-offset: 2px;
+
+}
+
+
+
+::selection {
+
+  background: #d5ebdd;
+
+  color: var(--color-navy);
+
+}
+
+
+
+h1, h2, h3, h4, h5, h6 {
+
+  font-weight: 600;
+
+  letter-spacing: -0.02em;
+
+  line-height: 1.25;
+
+}
+
+
+
+.font-display {
+
+  font-family: 'Cormorant Garamond', 'DM Serif Display', Georgia, 'Times New Roman', serif;
+
+  font-weight: 600;
+
+  letter-spacing: -0.01em;
+
+}
+
+
+
+button, a, input, select, textarea {
+
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+
+}
+
+
+
+@layer utilities {
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+
+
+  .gradient-brand {
+
+    background: linear-gradient(145deg, #0F6B3E 0%, #0c5532 100%);
+
+  }
+
+
+
+  .gradient-ibbul-hero {
+
+    background: linear-gradient(135deg, #062b1a 0%, #0a4d2e 35%, #0F6B3E 70%, #0c5532 100%);
+
+  }
+
+
+
+  .gradient-navy {
+
+    background: linear-gradient(145deg, #062b1a 0%, #0a3d22 50%, #0F6B3E 100%);
+
+  }
+
+
+
+  .gradient-gold-accent {
+
+    background: linear-gradient(135deg, #C9A227 0%, #a8851f 100%);
+
+  }
+
+
+
+  .auth-panel {
+
+    @apply rounded-2xl border border-slate-200/90 bg-white shadow-card;
+
+  }
+
+
+
+  .auth-input {
+
+    @apply w-full h-10 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 outline-none;
+
+    @apply placeholder:text-slate-400 focus:bg-white focus:border-brand-600 focus:ring-2 focus:ring-brand-100;
+
+  }
+
+
+
+  .auth-input-error {
+
+    @apply border-red-400 bg-red-50 focus:border-red-500 focus:ring-red-100;
+
+  }
+
+
+
+  .auth-submit {
+
+    @apply w-full h-10 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2;
+
+    @apply gradient-brand shadow-sm disabled:opacity-50 disabled:cursor-not-allowed;
+
+  }
+
+
+
+  .text-balance { text-wrap: balance; }
+
+
+
+  .ibbul-pattern {
+
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+
+  }
+
+
+
+  .institutional-card {
+
+    @apply rounded-2xl border border-slate-200/80 bg-white shadow-card;
+
+  }
+
+
+
+  .institutional-input {
+
+    @apply w-full h-10 px-4 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 outline-none;
+
+    @apply focus:bg-white focus:border-brand-600 focus:ring-2 focus:ring-brand-100;
+
+  }
+
+}
+
+
+
+.skeleton {
+
+  background: linear-gradient(90deg, #eef7f1 25%, #d5ebdd 50%, #eef7f1 75%);
+
+  background-size: 200% 100%;
+
+  animation: skeleton-shimmer 1.5s infinite;
+
+  border-radius: 6px;
+
+}
+
+
+
+@keyframes skeleton-shimmer {
+
+  0%   { background-position: 200% 0; }
+
+  100% { background-position: -200% 0; }
+
+}
+
+
+
+.grade-badge {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  min-width: 2rem;
+
+  height: 2rem;
+
+  padding: 0 0.5rem;
+
+  border-radius: 0.5rem;
+
+  font-weight: 700;
+
+  font-size: 0.8125rem;
+
+  line-height: 1;
+
+  border-width: 1px;
+
+  border-style: solid;
+
+  letter-spacing: 0.02em;
+
+}
+
+@media print {
+
+  .no-print { display: none !important; }
+
+  body { font-size: 12px; }
+
+}
+
+

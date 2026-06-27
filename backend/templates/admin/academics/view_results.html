@@ -1,0 +1,115 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+<style>
+    .results-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    .filters {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .filters form {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr auto;
+        gap: 15px;
+        align-items: end;
+    }
+    .student-list {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+    .student-item {
+        padding: 15px 20px;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .student-item:hover {
+        background: #f9fafb;
+    }
+    .student-item:last-child {
+        border-bottom: none;
+    }
+    .student-info {
+        flex: 1;
+    }
+    .student-name {
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 5px;
+    }
+    .student-id {
+        color: #6b7280;
+        font-size: 14px;
+    }
+    .btn-view {
+        background: #10b981;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        text-decoration: none;
+        font-size: 14px;
+    }
+    .btn-view:hover {
+        background: #059669;
+    }
+    .form-control {
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="results-container">
+    <h1 style="margin-bottom: 20px; color: #111827;">View Results</h1>
+    
+    <div class="filters">
+        <form method="get">
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">Session</label>
+                <input type="text" name="session" value="{{ session }}" class="form-control" placeholder="2023/2024">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">Semester</label>
+                <select name="semester" class="form-control">
+                    <option value="FIRST" {% if semester == 'FIRST' %}selected{% endif %}>First Semester</option>
+                    <option value="SECOND" {% if semester == 'SECOND' %}selected{% endif %}>Second Semester</option>
+                </select>
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">&nbsp;</label>
+                <button type="submit" style="background: #10b981; color: white; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;">Filter</button>
+            </div>
+        </form>
+    </div>
+    
+    <div class="student-list">
+        {% for student in students %}
+        <div class="student-item">
+            <div class="student-info">
+                <div class="student-name">{{ student.first_name }} {{ student.last_name }}</div>
+                <div class="student-id">{{ student.student_id }}</div>
+            </div>
+            <a href="{% url 'admin:academics_student_results' student.id %}?session={{ session }}&semester={{ semester }}" class="btn-view">View Results</a>
+        </div>
+        {% empty %}
+        <div style="padding: 40px; text-align: center; color: #6b7280;">
+            No students found
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

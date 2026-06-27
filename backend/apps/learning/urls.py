@@ -1,0 +1,24 @@
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import (
+    LMSOfferingViewSet, EnrollmentViewSet, ModuleViewSet,
+    LessonViewSet, QuizViewSet, AssignmentViewSet,
+    QuizQuestionViewSet, learning_dashboard_stats,
+)
+from .engine_views import lesson_live_position, offering_gradebook
+
+router = DefaultRouter()
+router.register(r'offerings', LMSOfferingViewSet, basename='lms-offering')
+router.register(r'enrollments', EnrollmentViewSet, basename='enrollment')
+router.register(r'modules', ModuleViewSet, basename='module')
+router.register(r'lessons', LessonViewSet, basename='lesson')
+router.register(r'quizzes', QuizViewSet, basename='quiz')
+router.register(r'assignments', AssignmentViewSet, basename='assignment')
+router.register(r'questions', QuizQuestionViewSet, basename='quiz-question')
+
+urlpatterns = [
+    path('', include(router.urls)),
+    path('dashboard-stats/', learning_dashboard_stats, name='learning-dashboard-stats'),
+    path('lessons/<int:lesson_id>/live-position/', lesson_live_position, name='lesson-live-position'),
+    path('offerings/<int:offering_id>/gradebook/', offering_gradebook, name='offering-gradebook'),
+]

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Audit Log Export</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 24px; color: #111; }
+        h1 { font-size: 1.25rem; margin-bottom: 8px; }
+        .meta { color: #6b7280; font-size: 13px; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; }
+        th { background: #f9fafb; font-weight: 600; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .print-note { margin-top: 20px; font-size: 12px; color: #6b7280; }
+    </style>
+</head>
+<body>
+    <h1>Audit Log Export</h1>
+    <p class="meta">Generated: {{ generated|date:"Y-m-d H:i T" }}</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Action</th>
+                <th>Actor</th>
+                <th>Target identifier</th>
+                <th>IP address</th>
+                <th>Device / Browser</th>
+                <th>Timestamp</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>{{ row.action }}</td>
+                <td>{{ row.actor }}</td>
+                <td>{{ row.target_identifier }}</td>
+                <td>{{ row.ip_address }}</td>
+                <td>{{ row.device_browser }}</td>
+                <td>{{ row.timestamp }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6">No records.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="print-note">To save as PDF: use your browser’s Print dialog and choose “Save as PDF” or “Print to PDF”.</p>
+</body>
+</html>

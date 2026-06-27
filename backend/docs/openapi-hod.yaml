@@ -1,0 +1,273 @@
+openapi: 3.0.3
+info:
+  title: IBBUL Result Management - HOD Module API
+  description: HOD (Department Admin) and SuperAdmin endpoints for result upload, approval, users, audit.
+  version: 1.0.0
+
+servers:
+  - url: http://127.0.0.1:8000/api
+    description: Local API
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ========== HOD Results ==========
+  /academics/hod/results/:
+    get:
+      summary: List HOD results (department-scoped)
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: session
+          in: query
+          schema: { type: string }
+        - name: semester
+          in: query
+          schema: { type: string, enum: [FIRST, SECOND] }
+        - name: course_id
+          in: query
+          schema: { type: integer }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer }
+        - name: page_size
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Paginated results list
+
+  /academics/hod/results/{id}/approve/:
+    post:
+      summary: Approve single result (HOD)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Result approved and locked
+
+  /academics/hod/results/{id}/reject/:
+    post:
+      summary: Reject single result (HOD)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          description: Result rejected
+
+  /academics/hod/results/bulk_approve/:
+    post:
+      summary: Bulk approve results (HOD)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [result_ids]
+              properties:
+                result_ids: { type: array, items: { type: integer } }
+      responses:
+        '200':
+          description: Bulk approval result
+
+  /academics/hod/results/bulk_reject/:
+    post:
+      summary: Bulk reject results (HOD)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [result_ids, reason]
+              properties:
+                result_ids: { type: array, items: { type: integer } }
+                reason: { type: string }
+      responses:
+        '200':
+          description: Bulk rejection result
+
+  /academics/hod/results/{id}/versions/:
+    get:
+      summary: Get result version history (HOD)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: List of versions
+
+  /academics/hod/results/summary_stats/:
+    get:
+      summary: Dashboard summary stats (HOD)
+      responses:
+        '200':
+          description: pending_approvals, approved, rejected, uploads_this_month
+
+  # ========== HOD Upload ==========
+  /academics/hod/upload/validate/:
+    post:
+      summary: Validate CSV/XLSX upload (HOD)
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, session, semester]
+              properties:
+                file: { type: string, format: binary }
+                session: { type: string }
+                semester: { type: string, enum: [FIRST, SECOND] }
+      responses:
+        '200':
+          description: Validation report (valid_rows, error_rows, errors)
+
+  /academics/hod/upload/preview/:
+    post:
+      summary: Preview upload (HOD)
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, session, semester]
+              properties:
+                file: { type: string, format: binary }
+                session: { type: string }
+                semester: { type: string, enum: [FIRST, SECOND] }
+      responses:
+        '200':
+          description: Preview data and validation
+
+  /academics/hod/upload/submit/:
+    post:
+      summary: Submit validated upload (HOD)
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, session, semester]
+              properties:
+                file: { type: string, format: binary }
+                session: { type: string }
+                semester: { type: string, enum: [FIRST, SECOND] }
+      responses:
+        '200':
+          description: created_count, batch_id
+
+  # ========== HOD Users ==========
+  /academics/hod/users/:
+    get:
+      summary: List department users (HOD)
+    post:
+      summary: Create department user (HOD)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, first_name, last_name, role]
+              properties:
+                email: { type: string }
+                first_name: { type: string }
+                last_name: { type: string }
+                role: { type: string, enum: [EXAMINER, LECTURER] }
+
+  /academics/hod/users/{id}/:
+    put:
+      summary: Update department user (HOD)
+    patch:
+      summary: Partial update department user (HOD)
+
+  /academics/hod/users/{id}/deactivate/:
+    post:
+      summary: Deactivate department user (HOD)
+
+  /academics/hod/users/{id}/login_history/:
+    get:
+      summary: Get user login history (HOD)
+
+  /academics/hod/users/{id}/assign_courses/:
+    post:
+      summary: Assign courses to examiner (HOD)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [course_ids]
+              properties:
+                course_ids: { type: array, items: { type: integer } }
+
+  /academics/hod/users/export_csv/:
+    get:
+      summary: Export department users CSV (HOD)
+      responses:
+        '200':
+          description: CSV file
+
+  # ========== SuperAdmin: Emergency Unlock ==========
+  /academics/results/{id}/emergency_unlock/:
+    post:
+      summary: Emergency unlock result (SUPER_ADMIN only)
+      description: Unlocks a LOCKED_PUBLISHED result. Requires mandatory reason. Creates audit log and ResultVersion.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          description: Result unlocked; status set to HOD_REVIEW
+        '403':
+          description: Only SUPER_ADMIN can perform emergency unlock
+        '400':
+          description: Reason required or result not LOCKED_PUBLISHED
+
+  # ========== Audit ==========
+  /accounts/audit/:
+    get:
+      summary: List audit logs (scoped by role)
+      parameters:
+        - name: action
+        - name: actor_role
+        - name: page
+        - name: page_size
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -1,0 +1,128 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+<style>
+    .gpa-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    .filters {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .filters form {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr auto;
+        gap: 15px;
+        align-items: end;
+    }
+    .gpa-table {
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    thead {
+        background: #f9fafb;
+    }
+    th {
+        padding: 12px 16px;
+        text-align: left;
+        font-weight: 600;
+        font-size: 12px;
+        color: #6b7280;
+        text-transform: uppercase;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    td {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e5e7eb;
+        font-size: 14px;
+    }
+    tbody tr:hover {
+        background: #f9fafb;
+    }
+    .form-control {
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+    .cgpa-highlight {
+        color: #10b981;
+        font-weight: 600;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="gpa-container">
+    <h1 style="margin-bottom: 20px; color: #111827;">GPA Management</h1>
+    
+    <div class="filters">
+        <form method="get">
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">Session</label>
+                <input type="text" name="session" value="{{ session }}" class="form-control" placeholder="2023/2024">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">Semester</label>
+                <select name="semester" class="form-control">
+                    <option value="">All Semesters</option>
+                    <option value="FIRST" {% if semester == 'FIRST' %}selected{% endif %}>First Semester</option>
+                    <option value="SECOND" {% if semester == 'SECOND' %}selected{% endif %}>Second Semester</option>
+                </select>
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">Student</label>
+                <input type="text" name="student" value="{{ student_search }}" class="form-control" placeholder="Search by ID or email">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">&nbsp;</label>
+                <button type="submit" style="background: #10b981; color: white; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;">Filter</button>
+            </div>
+        </form>
+    </div>
+    
+    <div class="gpa-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Session</th>
+                    <th>Semester</th>
+                    <th>GPA</th>
+                    <th>CGPA</th>
+                    <th>Total Credits</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for gpa in gpa_records %}
+                <tr>
+                    <td>{{ gpa.student.student_id }} - {{ gpa.student.first_name }} {{ gpa.student.last_name }}</td>
+                    <td>{{ gpa.session }}</td>
+                    <td>{{ gpa.semester|title }}</td>
+                    <td>{{ gpa.gpa|floatformat:2 }}</td>
+                    <td class="cgpa-highlight">{{ gpa.cgpa|floatformat:2 }}</td>
+                    <td>{{ gpa.total_credits }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 40px; color: #6b7280;">
+                        No GPA records found
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

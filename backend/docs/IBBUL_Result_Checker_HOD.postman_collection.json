@@ -1,0 +1,229 @@
+{
+  "info": {
+    "name": "IBBUL Result Checker - HOD Module",
+    "description": "HOD (Department Admin) and SuperAdmin APIs for upload, approval, users, audit.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{access_token}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000/api" },
+    { "key": "access_token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"hod.csc@ibbul.edu.ng\",\n  \"password\": \"Demo@123\"\n}"
+            },
+            "url": "{{base_url}}/accounts/login/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "HOD Results",
+      "item": [
+        {
+          "name": "List HOD Results",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/academics/hod/results/?page=1&page_size=20"
+          }
+        },
+        {
+          "name": "Summary Stats",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/academics/hod/results/summary_stats/"
+          }
+        },
+        {
+          "name": "Approve Result",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/academics/hod/results/1/approve/"
+          }
+        },
+        {
+          "name": "Reject Result",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Incorrect score entry\"\n}"
+            },
+            "url": "{{base_url}}/academics/hod/results/1/reject/"
+          }
+        },
+        {
+          "name": "Bulk Approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result_ids\": [1, 2, 3]\n}"
+            },
+            "url": "{{base_url}}/academics/hod/results/bulk_approve/"
+          }
+        },
+        {
+          "name": "Bulk Reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result_ids\": [1, 2],\n  \"reason\": \"Batch correction required\"\n}"
+            },
+            "url": "{{base_url}}/academics/hod/results/bulk_reject/"
+          }
+        },
+        {
+          "name": "Result Versions",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/academics/hod/results/1/versions/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "HOD Upload",
+      "item": [
+        {
+          "name": "Validate Upload",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "session", "value": "2023/2024" },
+                { "key": "semester", "value": "FIRST" }
+              ]
+            },
+            "url": "{{base_url}}/academics/hod/upload/validate/"
+          }
+        },
+        {
+          "name": "Preview Upload",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "session", "value": "2023/2024" },
+                { "key": "semester", "value": "FIRST" }
+              ]
+            },
+            "url": "{{base_url}}/academics/hod/upload/preview/"
+          }
+        },
+        {
+          "name": "Submit Upload",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "session", "value": "2023/2024" },
+                { "key": "semester", "value": "FIRST" }
+              ]
+            },
+            "url": "{{base_url}}/academics/hod/upload/submit/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "HOD Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/academics/hod/users/"
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"lecturer@ibbul.edu.ng\",\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"role\": \"EXAMINER\"\n}"
+            },
+            "url": "{{base_url}}/academics/hod/users/"
+          }
+        },
+        {
+          "name": "Deactivate User",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/academics/hod/users/2/deactivate/"
+          }
+        },
+        {
+          "name": "Login History",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/academics/hod/users/2/login_history/"
+          }
+        },
+        {
+          "name": "Export Users CSV",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/academics/hod/users/export_csv/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "SuperAdmin",
+      "item": [
+        {
+          "name": "Emergency Unlock Result",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Senate-approved correction; ref. SEN/2024/001\"\n}"
+            },
+            "url": "{{base_url}}/academics/results/1/emergency_unlock/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit",
+      "item": [
+        {
+          "name": "List Audit Logs",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/accounts/audit/?page=1&page_size=50"
+          }
+        }
+      ]
+    }
+  ]
+}

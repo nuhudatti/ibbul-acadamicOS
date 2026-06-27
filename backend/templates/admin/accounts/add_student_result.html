@@ -1,0 +1,38 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+<style>
+    .result-container { max-width: 560px; margin: 0 auto; padding: 30px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .result-title { font-size: 1.35rem; color: #111827; margin-bottom: 8px; font-weight: 600; }
+    .success-msg { color: #047857; font-weight: 500; margin-bottom: 12px; padding: 12px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; }
+    .download-btn { display: inline-block; padding: 12px 24px; background: #10b981; color: white !important; text-decoration: none; border-radius: 6px; font-weight: 500; margin-top: 12px; }
+    .download-btn:hover { background: #059669; color: white !important; }
+    .ttl-note { font-size: 12px; color: #6b7280; margin-top: 10px; }
+    .nav-links { margin-top: 28px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+    .nav-links a { color: #10b981; text-decoration: none; font-weight: 500; }
+    .nav-links a:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="result-container">
+    <h1 class="result-title">{{ title|default:"Student added" }}</h1>
+    <p class="success-msg">Student <strong>{{ reg_number }}</strong> ({{ full_name }}) has been created successfully. A temporary password has been generated.</p>
+    <p style="margin-bottom: 8px;">Download the one-time CSV to get the temporary password. Give it to the student securely; they must change it on first login.</p>
+    {% if export_id %}
+    <a href="{% url 'admin_temp_passwords_export' export_id %}" class="download-btn">Download one-time CSV (reg_number → temp password)</a>
+    <p class="ttl-note">Link expires in {{ export_ttl_minutes }} minutes; one download only. Password is not stored in plain text after download.</p>
+    {% endif %}
+
+    <div class="nav-links">
+        <a href="{% url 'admin_add_student' %}">Add another student</a>
+        &nbsp;|&nbsp;
+        <a href="{% url 'admin_users_accounts' %}">Users / Accounts</a>
+        &nbsp;|&nbsp;
+        <a href="{% url 'admin:accounts_user_changelist' %}">Users list</a>
+        &nbsp;|&nbsp;
+        <a href="{% url 'admin:index' %}">Back to Admin</a>
+    </div>
+</div>
+{% endblock %}
