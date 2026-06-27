@@ -1,1 +1,2 @@
+# Heroku-style version pin (NOT used by Render — see .python-version instead)
 python-3.12.10

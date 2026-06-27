@@ -146,20 +146,25 @@ npm start
 
 ## Part 5 — Render deployment
 
+> **Important:** Render does **not** read `runtime.txt`. New services default to **Python 3.14**, which breaks `psycopg2`. You must pin **3.12.10** using one of:
+> 1. **Recommended:** Environment variable `PYTHON_VERSION=3.12.10` in Render dashboard
+> 2. Commit `backend/.python-version` containing `3.12.10` (included in this repo)
+
 ### 1. Create Web Service
 
 | Setting | Value |
 |---------|--------|
 | **Root Directory** | `backend` |
-| **Runtime** | Python (uses `runtime.txt` → **3.12.10**) |
+| **Runtime** | Python 3 |
 | **Build Command** | `./build.sh` |
 | **Start Command** | `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120` |
 
-Or use the included `Procfile` if Render detects it automatically.
+Or use the included `render.yaml` Blueprint at the repo root.
 
 ### 2. Environment variables (Render dashboard)
 
 ```env
+PYTHON_VERSION=3.12.10
 DEBUG=False
 SECRET_KEY=<openssl-rand-hex-32>
 ALLOWED_HOSTS=your-service.onrender.com
