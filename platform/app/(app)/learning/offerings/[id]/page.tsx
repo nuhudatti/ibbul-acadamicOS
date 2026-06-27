@@ -47,9 +47,9 @@ export default function OfferingDetailPage() {
         const list: Result[] = r.data.results ?? []
         const match = list.find(
           (res) =>
-            (res.course_code === offering.course_code || res.course === offering.course)
-            && res.session === offering.session
-            && res.semester === offering.semester
+            res.course_code === offering.course_code &&
+            res.session === offering.session &&
+            res.semester === offering.semester
         )
         setOfficialResult(match ?? null)
       })
