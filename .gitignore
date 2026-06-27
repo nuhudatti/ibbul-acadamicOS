@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+platform/node_modules/
+backend/node_modules/
+
+# Python
+__pycache__/
+*.pyc
+
+# Env
+.env
+
+# DB
+db.sqlite3
+
+# Build
+dist/
+build/
+
+# Media
+media/
+uploads/
