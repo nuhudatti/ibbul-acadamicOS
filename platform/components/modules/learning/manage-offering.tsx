@@ -116,7 +116,16 @@ export function ManageOffering({ offering, onRefresh }: ManageOfferingProps) {
   const updateLessonForm = (moduleId: number, patch: Partial<(typeof lessonForms)[number]>) => {
     setLessonForms((prev) => ({
       ...prev,
-      [moduleId]: { title: '', content_type: 'html', content_body: '', external_url: '', ...prev[moduleId], ...patch },
+      [moduleId]: {
+        ...{
+          title: '',
+          content_type: 'html',
+          content_body: '',
+          external_url: '',
+        },
+        ...(prev[moduleId] ?? {}),
+        ...patch,
+      },
     }))
   }
 
