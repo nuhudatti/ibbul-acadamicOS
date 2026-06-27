@@ -118,7 +118,9 @@ export function CreateFacultyModal({ open, onClose, onSuccess }: CreateFacultyMo
                 className="w-full h-10 px-3 pr-10 rounded-xl border border-slate-200 text-sm font-mono focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               />
               {!codeTouched && code && (
-                <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-400" title="Auto-suggested" />
+                <span title="Auto-suggested">
+                <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-400" />
+              </span>
               )}
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
