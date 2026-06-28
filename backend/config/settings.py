@@ -308,15 +308,15 @@ SIMPLE_JWT = {
 }
 
 # CORS Settings — set CORS_ALLOWED_ORIGINS in production (comma-separated HTTPS URLs)
-_cors_env = os.getenv('CORS_ALLOWED_ORIGINS', '').strip()
+_cors_env = _clean_env('CORS_ALLOWED_ORIGINS', '').strip()
 if _cors_env:
     CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(',') if o.strip()]
 else:
     CORS_ALLOWED_ORIGINS = [
-        "http://localhost:3000",   # Unified Next.js platform
+        "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:3002",
-        "http://localhost:5173",   # Vite (legacy)
+        "http://localhost:5173",
         "http://localhost:8000",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
@@ -328,7 +328,11 @@ else:
 CORS_ALLOW_CREDENTIALS = True
 
 # Frontend base URL (for password reset links in email)
-FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000').rstrip('/')
+FRONTEND_BASE_URL = _clean_env('FRONTEND_BASE_URL', 'http://localhost:3000').rstrip('/')
+
+# Auto-add live frontend to CORS (Vercel/Render) when FRONTEND_BASE_URL is HTTPS
+if FRONTEND_BASE_URL.startswith('https://') and FRONTEND_BASE_URL not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS) + [FRONTEND_BASE_URL]
 
 # Institution branding (used in transactional emails)
 INSTITUTION_NAME = os.getenv(
@@ -371,6 +375,7 @@ if _retry_delay_raw:
     EMAIL_SMTP_RETRY_DELAY = float(_retry_delay_raw)
 else:
     EMAIL_SMTP_RETRY_DELAY = float(_clean_env('SMTP_RETRY_DELAY_MS', '1000') or '1000') / 1000.0
+SENDGRID_USE_HTTP_API = _clean_env('SENDGRID_USE_HTTP_API', 'true').lower() in ('1', 'true', 'yes')
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # Celery — Module 8: Background infrastructure & monitoring

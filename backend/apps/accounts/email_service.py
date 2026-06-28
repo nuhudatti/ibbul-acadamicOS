@@ -5,8 +5,12 @@ Uses Super Admin platform branding (DB) + inline logo (CID) for reliable deliver
 from __future__ import annotations
 
 import html
+import json
 import logging
+import re
 import time
+import urllib.error
+import urllib.request
 from email.mime.image import MIMEImage
 from typing import Tuple
 
@@ -49,13 +53,104 @@ ROLE_PURPOSE = {
 }
 
 
+def _sendgrid_api_key() -> str:
+    return (getattr(settings, 'EMAIL_HOST_PASSWORD', '') or '').strip()
+
+
+def _use_sendgrid_http_api() -> bool:
+    """SendGrid HTTP API — reliable on Render (SMTP port 587 often blocks/timeouts)."""
+    key = _sendgrid_api_key()
+    if not key.startswith('SG.'):
+        return False
+    flag = getattr(settings, 'SENDGRID_USE_HTTP_API', True)
+    if isinstance(flag, str):
+        return flag.lower() in ('1', 'true', 'yes')
+    return bool(flag)
+
+
+def _parse_from_address(from_email: str) -> dict:
+    raw = (from_email or '').strip()
+    match = re.match(r'^(?:"?([^"<]*)"?\s*)?<([^>]+)>$', raw)
+    if match:
+        name = (match.group(1) or '').strip()
+        email = match.group(2).strip()
+        return {'email': email, 'name': name} if name else {'email': email}
+    return {'email': raw}
+
+
+def _parse_sendgrid_http_error(status: int, body: str) -> str:
+    try:
+        data = json.loads(body)
+        errors = data.get('errors') or []
+        if errors:
+            parts = [e.get('message', '') for e in errors if e.get('message')]
+            if parts:
+                return f'SendGrid: {"; ".join(parts)[:500]}'
+    except Exception:
+        pass
+    if status == 401:
+        return 'SendGrid API key rejected (401). Check EMAIL_HOST_PASSWORD is a valid Mail Send API key.'
+    if status == 403:
+        return 'SendGrid forbidden (403). Verify sender email in SendGrid Single Sender Verification.'
+    return f'SendGrid HTTP error {status}: {body[:300]}'
+
+
+def send_via_sendgrid_http(
+    *,
+    to: list[str],
+    subject: str,
+    plain_body: str,
+    html_body: str,
+    from_email: str,
+    reply_to: str,
+) -> Tuple[bool, str]:
+    api_key = _sendgrid_api_key()
+    payload: dict = {
+        'personalizations': [{'to': [{'email': e} for e in to]}],
+        'from': _parse_from_address(from_email),
+        'subject': subject,
+        'content': [
+            {'type': 'text/plain', 'value': plain_body},
+            {'type': 'text/html', 'value': html_body},
+        ],
+    }
+    if reply_to and '@' in reply_to:
+        payload['reply_to'] = {'email': reply_to.strip()}
+
+    req = urllib.request.Request(
+        'https://api.sendgrid.com/v3/mail/send',
+        data=json.dumps(payload).encode('utf-8'),
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+        },
+        method='POST',
+    )
+    timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 20))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status in (200, 202):
+                return True, 'Email sent via SendGrid'
+            body = resp.read().decode('utf-8', errors='replace')
+            return False, _parse_sendgrid_http_error(resp.status, body)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode('utf-8', errors='replace') if exc.fp else str(exc)
+        return False, _parse_sendgrid_http_error(exc.code, body)
+    except urllib.error.URLError as exc:
+        return False, f'SendGrid HTTP unreachable: {exc.reason}'
+
+
 def email_configured() -> bool:
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', '')
+    if not from_email:
+        return False
+    if _use_sendgrid_http_api():
+        return True
     backend = getattr(settings, 'EMAIL_BACKEND', '')
     host = getattr(settings, 'EMAIL_HOST', '')
     host_user = getattr(settings, 'EMAIL_HOST_USER', '')
     host_password = getattr(settings, 'EMAIL_HOST_PASSWORD', '')
-    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', '')
-    if not backend or not from_email or not host:
+    if not backend or not host:
         return False
     if 'console' in backend.lower() or 'filebased' in backend.lower():
         return False
@@ -75,6 +170,7 @@ def email_config_summary() -> dict:
         'from_email': getattr(settings, 'DEFAULT_FROM_EMAIL', ''),
         'reply_to': getattr(settings, 'EMAIL_REPLY_TO', '') or getattr(settings, 'SUPPORT_EMAIL', ''),
         'timeout': getattr(settings, 'EMAIL_TIMEOUT', 25),
+        'sendgrid_http': _use_sendgrid_http_api(),
         'configured': email_configured(),
     }
 
@@ -253,6 +349,27 @@ def send_branded_email(
 
     from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', '') or get_branding()['from_email']
     reply_to = getattr(settings, 'EMAIL_REPLY_TO', '').strip() or get_branding()['support_email']
+
+    # Prefer SendGrid HTTP API on production hosts (Render blocks/slow SMTP)
+    if _use_sendgrid_http_api():
+        try:
+            html_body = html_body.replace(f'cid:{LOGO_CID}', '')
+        except Exception:
+            pass
+        ok, msg = send_via_sendgrid_http(
+            to=to,
+            subject=subject,
+            plain_body=plain_body,
+            html_body=html_body,
+            from_email=from_email,
+            reply_to=reply_to,
+        )
+        if ok:
+            logger.info('Email sent via SendGrid HTTP to %s', to)
+            return True, msg
+        logger.error('SendGrid HTTP failed to %s: %s', to, msg)
+        return False, msg
+
     b = get_branding()
     retry_max = max(1, int(getattr(settings, 'EMAIL_SMTP_RETRY_MAX', 3)))
     retry_delay = float(getattr(settings, 'EMAIL_SMTP_RETRY_DELAY', 1.0))

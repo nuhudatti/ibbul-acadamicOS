@@ -3,10 +3,11 @@ Staff invitation service — email delivery, accept flow, governance actions.
 """
 import logging
 import secrets
+import threading
 from datetime import timedelta
 from typing import Optional, Tuple
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
 from django.utils import timezone
 
 from apps.academics.models import Department, Faculty
@@ -80,11 +81,57 @@ def _apply_delivery_result(
 
 
 def build_invitation_response_message(invitation: StaffInvitation) -> str:
+    if invitation.delivery_status == StaffInvitation.DeliveryStatus.QUEUED:
+        return 'Invitation saved — email is being sent'
     if invitation.delivery_status == StaffInvitation.DeliveryStatus.SENT:
         return 'Invitation email sent successfully'
     if invitation.delivery_error:
         return f'Invitation created but email could not be sent: {invitation.delivery_error}'
     return 'Invitation created — copy the secure link from the invitations list'
+
+
+def _queue_invitation_email(invitation: StaffInvitation, *, is_resend: bool = False, actor_id: Optional[int] = None) -> StaffInvitation:
+    """Return immediately; deliver email in a background thread (avoids Gunicorn timeout)."""
+    invitation.delivery_status = StaffInvitation.DeliveryStatus.QUEUED
+    invitation.delivery_error = ''
+    invitation.save(update_fields=['delivery_status', 'delivery_error'])
+
+    inv_id = invitation.id
+
+    def _deliver() -> None:
+        close_old_connections()
+        try:
+            inv = StaffInvitation.objects.select_related('faculty', 'department').get(pk=inv_id)
+            ok, msg = send_invitation_email(inv)
+            _apply_delivery_result(inv, ok, msg, is_resend=is_resend)
+            actor = User.objects.filter(pk=actor_id).first() if actor_id else None
+            log_audit(
+                AuditLog.Action.ADMIN_ACTION,
+                user=actor,
+                identifier=f'Invitation email to {inv.email}',
+                extra={
+                    'action': 'STAFF_INVITATION_SENT' if not is_resend else 'STAFF_INVITATION_RESENT',
+                    'invitation_id': inv.id,
+                    'email': inv.email,
+                    'delivery_ok': ok,
+                    'delivery_error': msg if not ok else '',
+                    'invite_url': build_invite_url(inv.token),
+                },
+            )
+        except Exception as exc:
+            logger.exception('Background invitation email failed for id=%s: %s', inv_id, exc)
+            try:
+                inv = StaffInvitation.objects.get(pk=inv_id)
+                inv.delivery_status = StaffInvitation.DeliveryStatus.FAILED
+                inv.delivery_error = str(exc)[:500]
+                inv.save(update_fields=['delivery_status', 'delivery_error'])
+            except Exception:
+                pass
+        finally:
+            close_old_connections()
+
+    threading.Thread(target=_deliver, daemon=True).start()
+    return invitation
 
 
 def _clear_previous_assignment(role: str, faculty: Optional[Faculty], department: Optional[Department]) -> None:
@@ -344,24 +391,7 @@ def create_and_send_invitation(
     except IntegrityError as exc:
         raise ValueError(_friendly_integrity_error(exc)) from exc
 
-    ok, msg = send_invitation_email(invitation)
-    invitation = _apply_delivery_result(invitation, ok, msg)
-
-    log_audit(
-        AuditLog.Action.ADMIN_ACTION,
-        user=invited_by,
-        identifier=f'Invitation email to {invitation.email}',
-        extra={
-            'action': 'STAFF_INVITATION_SENT',
-            'invitation_id': invitation.id,
-            'email': invitation.email,
-            'role': invitation.role,
-            'delivery_ok': ok,
-            'delivery_error': msg if not ok else '',
-            'invite_url': build_invite_url(invitation.token),
-        },
-    )
-    return invitation
+    return _queue_invitation_email(invitation, is_resend=False, actor_id=invited_by.id)
 
 
 def resend_invitation(invitation: StaffInvitation, actor: User) -> StaffInvitation:
@@ -374,17 +404,9 @@ def resend_invitation(invitation: StaffInvitation, actor: User) -> StaffInvitati
         invitation.token = secrets.token_urlsafe(32)
         invitation.expires_at = timezone.now() + timedelta(days=INVITE_VALID_DAYS)
         invitation.status = StaffInvitation.Status.PENDING
+        invitation.save(update_fields=['token', 'expires_at', 'status'])
 
-    ok, msg = send_invitation_email(invitation)
-    invitation = _apply_delivery_result(invitation, ok, msg, is_resend=True)
-
-    log_audit(
-        AuditLog.Action.ADMIN_ACTION,
-        user=actor,
-        identifier=f'Resent invitation to {invitation.email}',
-        extra={'action': 'STAFF_INVITATION_RESENT', 'invitation_id': invitation.id},
-    )
-    return invitation
+    return _queue_invitation_email(invitation, is_resend=True, actor_id=actor.id)
 
 
 def revoke_invitation(invitation: StaffInvitation, actor: User) -> StaffInvitation:

@@ -52,6 +52,15 @@ export async function toastInvitationOutcome(
   const verb = action === 'resent' ? 'resent' : 'created'
   const url = inv.invite_url
 
+  if (inv.delivery_status === 'QUEUED') {
+    const copied = await copyInviteLink(url)
+    const msg = copied
+      ? 'Invitation saved — email is sending. Secure link copied to clipboard.'
+      : 'Invitation saved — email is sending. Refresh Invitations in a few seconds for delivery status.'
+    toast.success(msg, { duration: 7000 })
+    return
+  }
+
   if (inv.delivery_status === 'SENT') {
     const copied = await copyInviteLink(url)
     if (copied) {
