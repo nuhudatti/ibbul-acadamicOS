@@ -1,6 +1,7 @@
 import type { Lesson } from '@/lib/types'
+import { resolveApiBase } from '@/lib/api-config'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+const { origin: API_BASE } = resolveApiBase()
 
 /** Resolve uploaded file_key or external URL for lesson media */
 export function resolveLessonMediaUrl(lesson: Pick<Lesson, 'file_key' | 'external_url'>): string {

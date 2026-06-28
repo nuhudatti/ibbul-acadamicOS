@@ -11,9 +11,14 @@ export function extractApiError(err: unknown, fallback: string): string {
       return 'Request timed out. The invitation may already exist — check the Invitations list before sending again.'
     }
     if (!err.response) {
-      return 'Could not reach the server. Check your internet connection and that NEXT_PUBLIC_API_URL points to your live backend.'
+      return 'Could not reach the server. If you are on the live site, set BACKEND_URL on your frontend host to your Django API URL and redeploy.'
     }
     const data = err.response.data
+    if (err.response.status === 502 && data && typeof data === 'object') {
+      const record = data as Record<string, unknown>
+      if (typeof record.error === 'string' && record.error.trim()) return record.error
+      return 'Backend unreachable. Set BACKEND_URL on your frontend host (e.g. https://your-api.onrender.com) and redeploy.'
+    }
     if (data && typeof data === 'object') {
       const record = data as Record<string, unknown>
       if (typeof record.error === 'string' && record.error.trim()) return record.error
