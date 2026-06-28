@@ -441,7 +441,7 @@ export const invitationAPI = {
   verify: (token: string) =>
     axios.get(`${getApiPrefix()}${apiPath('/accounts/invitations/verify')}`, { params: { token } }),
 
-  accept: (data: { token: string; password: string }) =>
+  accept: (data: { token: string; password: string; password_confirm: string }) =>
     axios.post(`${getApiPrefix()}${apiPath('/accounts/invitations/accept')}`, data),
 }
 

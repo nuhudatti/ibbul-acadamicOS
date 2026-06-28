@@ -7,6 +7,7 @@ import { Eye, EyeOff, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import axios from 'axios'
 import { invitationAPI } from '@/lib/api'
+import { extractApiError } from '@/lib/api-errors'
 import { cn } from '@/lib/utils'
 import { AuthShell } from '@/components/auth/auth-shell'
 
@@ -70,11 +71,11 @@ function AcceptInvitationContent() {
 
     setSubmitting(true)
     try {
-      await invitationAPI.accept({ token, password })
+      await invitationAPI.accept({ token, password, password_confirm: confirm })
       setDone(true)
       toast.success('Account activated — you can sign in now')
     } catch (err) {
-      toast.error(axios.isAxiosError(err) ? (err.response?.data?.error ?? 'Activation failed') : 'Activation failed')
+      toast.error(extractApiError(err, 'Activation failed'))
     } finally {
       setSubmitting(false)
     }
