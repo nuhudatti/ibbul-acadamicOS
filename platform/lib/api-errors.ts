@@ -52,10 +52,10 @@ export function formatApiErrorValue(value: unknown, fallback = 'Something went w
 export function extractApiError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
     if (err.code === 'ECONNABORTED') {
-      return 'Request timed out. Please try again.'
+      return 'Upload timed out. For large files, set NEXT_PUBLIC_API_URL on Vercel to your Render backend URL.'
     }
     if (!err.response) {
-      return 'Could not reach the server. Check your connection and try again.'
+      return 'Could not reach the server. For file uploads, set NEXT_PUBLIC_API_URL on Vercel to your Render backend URL.'
     }
     const data = err.response.data
     if (err.response.status === 502 && data && typeof data === 'object') {

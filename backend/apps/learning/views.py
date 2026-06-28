@@ -482,6 +482,11 @@ class LessonViewSet(viewsets.ModelViewSet):
             folder = f"{getattr(settings, 'CLOUDINARY_LEARNING_FOLDER', 'ibbul/learning')}/lessons/{lesson.id}"
             try:
                 url, _pid = upload_file(upload, folder=folder, filename=safe_name)
+            except RuntimeError as exc:
+                return Response(
+                    {'detail': 'Video storage not configured. Set CLOUDINARY_* on the server.'},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             except Exception as exc:
                 return Response({'detail': str(exc)[:300]}, status=status.HTTP_502_BAD_GATEWAY)
             lesson.file_key = url

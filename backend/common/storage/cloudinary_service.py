@@ -77,6 +77,9 @@ def upload_file(
         'unique_filename': True,
         'overwrite': False,
     }
+    if rt == 'video':
+        opts['chunk_size'] = 6_000_000
+        opts['timeout'] = 600_000
     if public_id:
         opts['public_id'] = public_id
 

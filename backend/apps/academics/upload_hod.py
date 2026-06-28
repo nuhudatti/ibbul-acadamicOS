@@ -21,7 +21,7 @@ from .services import ResultUploadService, get_course_for_upload, GPACalculation
 from apps.accounts.models import User, UserRole
 from apps.accounts.audit import log_audit
 from apps.accounts.models import AuditLog
-from apps.accounts.scope import is_super_admin, is_hod, get_hod_department_id
+from apps.accounts.scope import is_super_admin, is_hod, get_hod_department_id, can_manage_department_results
 
 
 def _hod_department(user) -> Optional[Department]:
@@ -55,8 +55,11 @@ class HODUploadValidateView(APIView):
 
     def post(self, request):
         user = request.user
-        if not user.is_staff or not (is_super_admin(user) or is_hod(user)):
-            return Response({'error': 'Only HOD/Department Admin can upload results'}, status=status.HTTP_403_FORBIDDEN)
+        if not can_manage_department_results(user):
+            return Response(
+                {'error': 'Only HOD/Department Admin can upload results. Assign your department in profile.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         department = _hod_department(user)
         if not is_super_admin(user) and not department:
@@ -115,7 +118,7 @@ class HODUploadPreviewView(APIView):
 
     def post(self, request):
         user = request.user
-        if not user.is_staff or not (is_super_admin(user) or is_hod(user)):
+        if not can_manage_department_results(user):
             return Response({'error': 'Only HOD/Department Admin can upload results'}, status=status.HTTP_403_FORBIDDEN)
 
         department = _hod_department(user)
@@ -146,7 +149,7 @@ class HODUploadSubmitView(APIView):
 
     def post(self, request):
         user = request.user
-        if not user.is_staff or not (is_super_admin(user) or is_hod(user)):
+        if not can_manage_department_results(user):
             return Response({'error': 'Only HOD/Department Admin can upload results'}, status=status.HTTP_403_FORBIDDEN)
 
         department = _hod_department(user)

@@ -23,7 +23,7 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 
 import { academicsAPI } from '@/lib/api'
-
+import { extractApiError } from '@/lib/api-errors'
 import { cn } from '@/lib/utils'
 
 import { useAuthStore } from '@/lib/store'
@@ -293,11 +293,7 @@ export default function UploadResultsPage() {
       }
 
     } catch (err: unknown) {
-
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Validation failed'
-
-      setError(msg)
-
+      setError(extractApiError(err, 'Validation failed — check your file format and try again.'))
       setValidationReport(null)
 
     } finally {
@@ -353,11 +349,8 @@ export default function UploadResultsPage() {
       toast.success(`${count} result(s) uploaded`)
 
     } catch (err: unknown) {
-
       const e = err as { response?: { data?: { error?: string; validation_report?: ValidationRow[] } } }
-
-      const msg = e?.response?.data?.error ?? 'Upload failed'
-
+      const msg = extractApiError(err, 'Upload failed')
       setError(msg)
 
       if (e?.response?.data?.validation_report) {

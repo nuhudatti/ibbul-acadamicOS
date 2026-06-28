@@ -394,6 +394,10 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 # Error report download TTL (minutes)
 UPLOAD_REPORT_DOWNLOAD_TTL_MINUTES = int(os.getenv('UPLOAD_REPORT_DOWNLOAD_TTL_MINUTES', '10'))
 
+# Large result Excel / lesson media uploads (Render + Django defaults are ~2.5MB in memory)
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv('DATA_UPLOAD_MAX_MEMORY_SIZE', str(52_428_800)))  # 50 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv('FILE_UPLOAD_MAX_MEMORY_SIZE', str(52_428_800)))
+
 # Logging — stdout/stderr only (Render, Railway, Docker, Gunicorn capture logs)
 LOGGING = {
     'version': 1,

@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react'
 import type { Lesson } from '@/lib/types'
 import { resolveLessonMediaUrl } from '@/lib/learning-media'
 import { getVideoEmbedUrl, isYouTubeOrVimeo } from '@/lib/learning-utils'
-import { MediaDownloadBar } from './media-download-bar'
 
 export function VideoEngineView({ lesson }: { lesson: Lesson }) {
   const url = resolveLessonMediaUrl(lesson)
@@ -35,32 +34,31 @@ export function VideoEngineView({ lesson }: { lesson: Lesson }) {
     const embed = getVideoEmbedUrl(url)
     if (embed) {
       return (
-        <div className="space-y-3">
-          <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-xl ring-1 ring-slate-200/80">
-            <iframe src={embed} title={lesson.title} className="w-full h-full" allowFullScreen />
-          </div>
-          <MediaDownloadBar url={url} label="video link" />
+        <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-xl ring-1 ring-slate-200/80">
+          <iframe src={embed} title={lesson.title} className="w-full h-full" allowFullScreen />
         </div>
       )
     }
   }
 
-  const filename = lesson.file_key?.split('/').pop() || `${lesson.title}.mp4`
-
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="rounded-2xl overflow-hidden bg-black shadow-xl ring-1 ring-slate-200/80">
         <video
           ref={videoRef}
           src={url}
           controls
+          controlsList="nodownload noplaybackrate"
+          disablePictureInPicture
+          onContextMenu={(e) => e.preventDefault()}
           className="w-full aspect-video"
           playsInline
           preload="metadata"
         />
-        <p className="text-[11px] text-slate-400 bg-slate-900 px-4 py-2">Progress saved automatically · download available below</p>
+        <p className="text-[11px] text-slate-400 bg-slate-900 px-4 py-2">
+          Stream only — progress saved automatically
+        </p>
       </div>
-      <MediaDownloadBar url={url} filename={filename} label="video" />
     </div>
   )
 }

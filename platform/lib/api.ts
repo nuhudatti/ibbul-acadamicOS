@@ -4,7 +4,7 @@
  */
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
 import { isTokenExpired } from './utils'
-import { resolveApiBase } from './api-config'
+import { resolveApiBase, resolveMultipartApiPrefix } from './api-config'
 
 function getApiPrefix(): string {
   return resolveApiBase().apiPrefix
@@ -16,12 +16,14 @@ function apiPath(path: string): string {
   return withLeading.endsWith('/') ? withLeading : `${withLeading}/`
 }
 
-/** Multipart POST — bypasses axios default JSON Content-Type so browser sets boundary. */
+/** Multipart POST — direct to Django in production (avoids Vercel 4.5MB proxy limit). */
 function multipartPost(path: string, formData: FormData, timeout = 120_000) {
   const token = tokenStorage.getAccess()
-  return axios.post(`${getApiPrefix()}${apiPath(path)}`, formData, {
+  return axios.post(`${resolveMultipartApiPrefix()}${apiPath(path)}`, formData, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     timeout,
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
   })
 }
 
@@ -307,13 +309,13 @@ export const academicsAPI = {
 
   // HOD validate/preview/submit (optional pre-check flow)
   validateUpload: (formData: FormData) =>
-    multipartPost('/academics/hod/upload/validate/', formData, 60_000),
+    multipartPost('/academics/hod/upload/validate/', formData, 180_000),
 
   previewUpload: (formData: FormData) =>
-    multipartPost('/academics/hod/upload/preview/', formData, 60_000),
+    multipartPost('/academics/hod/upload/preview/', formData, 180_000),
 
   submitUpload: (formData: FormData) =>
-    multipartPost('/academics/hod/upload/submit/', formData, 120_000),
+    multipartPost('/academics/hod/upload/submit/', formData, 300_000),
 
   manualEntry: (payload: {
     student_id?: string
@@ -679,7 +681,9 @@ export const learningAPI = {
   uploadLessonMedia: (lessonId: number, file: File) => {
     const fd = new FormData()
     fd.append('file', file)
-    return multipartPost(`/learning/lessons/${lessonId}/upload-media/`, fd)
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(file.name)
+    const timeout = isVideo ? 600_000 : 180_000
+    return multipartPost(`/learning/lessons/${lessonId}/upload-media/`, fd, timeout)
   },
 
   getLivePosition: (lessonId: number) =>
