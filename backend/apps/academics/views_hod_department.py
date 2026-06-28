@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from apps.accounts.invitation_service import (
     ROLE_LABELS,
     build_invite_url,
+    build_invitation_response_message,
     create_and_send_invitation,
     resend_invitation,
     revoke_invitation,
@@ -325,7 +326,10 @@ def department_invitations(request):
             student_id=data.get('student_id'),
         )
         return Response({
-            'message': 'Invitation created',
+            'message': build_invitation_response_message(inv),
+            'email_sent': inv.delivery_status == StaffInvitation.DeliveryStatus.SENT,
+            'delivery_status': inv.delivery_status,
+            'delivery_error': inv.delivery_error or None,
             'invitation': _serialize_invitation(inv),
         }, status=status.HTTP_201_CREATED)
     except ValueError as e:
@@ -344,7 +348,13 @@ def department_invitation_resend(request, invitation_id):
         return scope_err
     try:
         inv = resend_invitation(inv, request.user)
-        return Response({'message': 'Invitation resent', 'invitation': _serialize_invitation(inv)})
+        return Response({
+            'message': build_invitation_response_message(inv),
+            'email_sent': inv.delivery_status == StaffInvitation.DeliveryStatus.SENT,
+            'delivery_status': inv.delivery_status,
+            'delivery_error': inv.delivery_error or None,
+            'invitation': _serialize_invitation(inv),
+        })
     except ValueError as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

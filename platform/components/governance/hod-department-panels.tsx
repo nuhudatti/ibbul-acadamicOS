@@ -7,8 +7,8 @@ import {
   UserX, UserCheck, Trash2, Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import axios from 'axios'
 import { hodDepartmentAPI, type StaffInvitationRecord } from '@/lib/api'
+import { extractApiError, toastInvitationOutcome } from '@/lib/invitation-feedback'
 import { cn } from '@/lib/utils'
 
 type FilterTab = 'pending' | 'accepted' | 'expired'
@@ -75,19 +75,13 @@ export function HodDepartmentInvitations({ invitations, loading, onRefresh, onIn
     setBusyId(id)
     try {
       const resp = await hodDepartmentAPI.resendInvitation(id)
-      if (resp.data.invitation.invite_url) {
-        try {
-          await navigator.clipboard.writeText(resp.data.invitation.invite_url)
-          toast.success('Resent — link copied')
-        } catch {
-          toast.success('Invitation resent')
-        }
-      } else {
-        toast.success('Invitation resent')
-      }
+      await toastInvitationOutcome(resp.data.invitation, {
+        action: 'resent',
+        serverMessage: resp.data.message,
+      })
       onRefresh()
     } catch (err) {
-      toast.error(axios.isAxiosError(err) ? (err.response?.data?.error ?? 'Resend failed') : 'Resend failed')
+      toast.error(extractApiError(err, 'Resend failed'))
     } finally {
       setBusyId(null)
     }
@@ -101,7 +95,7 @@ export function HodDepartmentInvitations({ invitations, loading, onRefresh, onIn
       toast.success('Invitation revoked')
       onRefresh()
     } catch (err) {
-      toast.error(axios.isAxiosError(err) ? (err.response?.data?.error ?? 'Revoke failed') : 'Revoke failed')
+      toast.error(extractApiError(err, 'Revoke failed'))
     } finally {
       setBusyId(null)
     }
@@ -338,10 +332,7 @@ export function HodDepartmentStudents({
       toast.success(resp.data.message)
       onRefresh?.()
     } catch (err: unknown) {
-      const msg = axios.isAxiosError(err)
-        ? (err.response?.data as { error?: string })?.error ?? 'Action failed'
-        : 'Action failed'
-      toast.error(msg)
+      toast.error(extractApiError(err, 'Action failed'))
     } finally {
       setActing(null)
     }

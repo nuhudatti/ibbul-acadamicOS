@@ -398,10 +398,23 @@ export const invitationAPI = {
     faculty_id?: number | null
     department_id?: number | null
     student_id?: string | null
-  }) => api.post<{ message: string; invitation: StaffInvitationRecord }>('/accounts/invitations/', data),
+  }) =>
+    api.post<{
+      message: string
+      email_sent?: boolean
+      delivery_status?: string
+      delivery_error?: string | null
+      invitation: StaffInvitationRecord
+    }>('/accounts/invitations/', data, { timeout: 90_000 }),
 
   resend: (id: number) =>
-    api.post<{ message: string; invitation: StaffInvitationRecord }>(`/accounts/invitations/${id}/resend/`),
+    api.post<{
+      message: string
+      email_sent?: boolean
+      delivery_status?: string
+      delivery_error?: string | null
+      invitation: StaffInvitationRecord
+    }>(`/accounts/invitations/${id}/resend/`, undefined, { timeout: 90_000 }),
 
   revoke: (id: number) =>
     api.post<{ message: string; invitation: StaffInvitationRecord }>(`/accounts/invitations/${id}/revoke/`),
@@ -486,10 +499,22 @@ export const hodDepartmentAPI = {
     role: 'EXAMINER' | 'STUDENT'
     student_id?: string
   }) =>
-    api.post<{ message: string; invitation: StaffInvitationRecord }>('/academics/hod/department/invitations/', data),
+    api.post<{
+      message: string
+      email_sent?: boolean
+      delivery_status?: string
+      delivery_error?: string | null
+      invitation: StaffInvitationRecord
+    }>('/academics/hod/department/invitations/', data, { timeout: 90_000 }),
 
   resendInvitation: (id: number) =>
-    api.post<{ message: string; invitation: StaffInvitationRecord }>(`/academics/hod/department/invitations/${id}/resend/`),
+    api.post<{
+      message: string
+      email_sent?: boolean
+      delivery_status?: string
+      delivery_error?: string | null
+      invitation: StaffInvitationRecord
+    }>(`/academics/hod/department/invitations/${id}/resend/`, undefined, { timeout: 90_000 }),
 
   revokeInvitation: (id: number) =>
     api.post<{ message: string; invitation: StaffInvitationRecord }>(`/academics/hod/department/invitations/${id}/revoke/`),

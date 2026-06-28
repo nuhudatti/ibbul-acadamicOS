@@ -6,7 +6,7 @@ import secrets
 from datetime import timedelta
 from typing import Optional, Tuple
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.academics.models import Department, Faculty
@@ -43,6 +43,48 @@ def build_invite_url(token: str) -> str:
 
 
 from apps.accounts.email_service import send_invitation_email_branded as send_invitation_email
+
+
+def _friendly_integrity_error(exc: IntegrityError) -> str:
+    msg = str(exc).lower()
+    if 'email' in msg:
+        return 'An account or pending invitation with this email already exists. Check Invitations or revoke the old one.'
+    if 'student_id' in msg:
+        return 'An account or pending invitation with this matric number already exists.'
+    return 'This invitation could not be created because a duplicate record exists.'
+
+
+def _apply_delivery_result(
+    invitation: StaffInvitation,
+    ok: bool,
+    msg: str,
+    *,
+    is_resend: bool = False,
+) -> StaffInvitation:
+    now = timezone.now()
+    if is_resend:
+        invitation.send_count += 1
+    else:
+        invitation.send_count = 1
+        invitation.sent_at = now
+    invitation.last_sent_at = now
+    invitation.status = StaffInvitation.Status.SENT
+    if ok:
+        invitation.delivery_status = StaffInvitation.DeliveryStatus.SENT
+        invitation.delivery_error = ''
+    else:
+        invitation.delivery_status = StaffInvitation.DeliveryStatus.FAILED
+        invitation.delivery_error = msg
+    invitation.save()
+    return invitation
+
+
+def build_invitation_response_message(invitation: StaffInvitation) -> str:
+    if invitation.delivery_status == StaffInvitation.DeliveryStatus.SENT:
+        return 'Invitation email sent successfully'
+    if invitation.delivery_error:
+        return f'Invitation created but email could not be sent: {invitation.delivery_error}'
+    return 'Invitation created — copy the secure link from the invitations list'
 
 
 def _clear_previous_assignment(role: str, faculty: Optional[Faculty], department: Optional[Department]) -> None:
@@ -94,8 +136,7 @@ def assert_inviter_can_manage(
         raise ValueError('You can only invite users into your own department')
 
 
-@transaction.atomic
-def create_and_send_invitation(
+def _create_invitation_record(
     *,
     invited_by: User,
     email: str,
@@ -161,7 +202,7 @@ def create_and_send_invitation(
         if not email:
             raise ValueError('Email is required for staff invitations')
 
-    pending_qs = StaffInvitation.objects.filter(
+    pending_qs = StaffInvitation.objects.select_for_update().filter(
         status__in=(StaffInvitation.Status.PENDING, StaffInvitation.Status.SENT),
         expires_at__gt=timezone.now(),
     )
@@ -256,39 +297,68 @@ def create_and_send_invitation(
         department=department,
         token=token,
         status=StaffInvitation.Status.PENDING,
+        delivery_status=StaffInvitation.DeliveryStatus.QUEUED,
         invited_by=invited_by,
         user=user,
         expires_at=expires_at,
     )
-
-    ok, msg = send_invitation_email(invitation)
-    now = timezone.now()
-    invitation.send_count = 1
-    invitation.last_sent_at = now
-    invitation.sent_at = now
-    if ok:
-        invitation.status = StaffInvitation.Status.SENT
-        invitation.delivery_status = StaffInvitation.DeliveryStatus.SENT
-        invitation.delivery_error = ''
-    else:
-        # Invitation is still valid — admin can copy link and resend
-        invitation.status = StaffInvitation.Status.SENT
-        invitation.delivery_status = StaffInvitation.DeliveryStatus.FAILED
-        invitation.delivery_error = msg
-
-    invitation.save()
 
     log_audit(
         AuditLog.Action.ADMIN_ACTION,
         user=invited_by,
         identifier=f'Invited {email} as {role}',
         extra={
-            'action': 'STAFF_INVITATION_SENT',
+            'action': 'STAFF_INVITATION_CREATED',
             'invitation_id': invitation.id,
             'email': email,
             'role': role,
-            'delivery_ok': ok,
             'invite_url': build_invite_url(token),
+        },
+    )
+    return invitation
+
+
+def create_and_send_invitation(
+    *,
+    invited_by: User,
+    email: str,
+    first_name: str,
+    last_name: str,
+    role: str,
+    faculty_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    student_id: Optional[str] = None,
+) -> StaffInvitation:
+    try:
+        with transaction.atomic():
+            invitation = _create_invitation_record(
+                invited_by=invited_by,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                role=role,
+                faculty_id=faculty_id,
+                department_id=department_id,
+                student_id=student_id,
+            )
+    except IntegrityError as exc:
+        raise ValueError(_friendly_integrity_error(exc)) from exc
+
+    ok, msg = send_invitation_email(invitation)
+    invitation = _apply_delivery_result(invitation, ok, msg)
+
+    log_audit(
+        AuditLog.Action.ADMIN_ACTION,
+        user=invited_by,
+        identifier=f'Invitation email to {invitation.email}',
+        extra={
+            'action': 'STAFF_INVITATION_SENT',
+            'invitation_id': invitation.id,
+            'email': invitation.email,
+            'role': invitation.role,
+            'delivery_ok': ok,
+            'delivery_error': msg if not ok else '',
+            'invite_url': build_invite_url(invitation.token),
         },
     )
     return invitation
@@ -306,17 +376,7 @@ def resend_invitation(invitation: StaffInvitation, actor: User) -> StaffInvitati
         invitation.status = StaffInvitation.Status.PENDING
 
     ok, msg = send_invitation_email(invitation)
-    now = timezone.now()
-    invitation.send_count += 1
-    invitation.last_sent_at = now
-    if ok:
-        invitation.status = StaffInvitation.Status.SENT
-        invitation.delivery_status = StaffInvitation.DeliveryStatus.SENT
-        invitation.delivery_error = ''
-    else:
-        invitation.delivery_status = StaffInvitation.DeliveryStatus.FAILED
-        invitation.delivery_error = msg
-    invitation.save()
+    invitation = _apply_delivery_result(invitation, ok, msg, is_resend=True)
 
     log_audit(
         AuditLog.Action.ADMIN_ACTION,

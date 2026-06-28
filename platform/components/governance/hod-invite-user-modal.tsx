@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { X, Loader2, Mail, UserPlus, GraduationCap, BookOpen } from 'lucide-react'
 import { toast } from 'sonner'
-import axios from 'axios'
 import { hodDepartmentAPI } from '@/lib/api'
+import { extractApiError, toastInvitationOutcome } from '@/lib/invitation-feedback'
 import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +37,7 @@ export function HodInviteUserModal({ open, onClose, onSuccess }: HodInviteUserMo
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submitting) return
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
       toast.error('Full name and email are required')
       return
@@ -58,21 +59,11 @@ export function HodInviteUserModal({ open, onClose, onSuccess }: HodInviteUserMo
         role: tab === 'lecturer' ? 'EXAMINER' : 'STUDENT',
         student_id: tab === 'student' ? matric.trim().toUpperCase() : undefined,
       })
-      const inv = resp.data.invitation
-      if (inv.invite_url) {
-        try {
-          await navigator.clipboard.writeText(inv.invite_url)
-          toast.success('Invitation sent — secure link copied to clipboard')
-        } catch {
-          toast.success('Invitation created — copy the link from Invitations tab')
-        }
-      } else {
-        toast.success(resp.data.message)
-      }
+      await toastInvitationOutcome(resp.data.invitation, { serverMessage: resp.data.message })
       onSuccess()
       onClose()
     } catch (err) {
-      toast.error(axios.isAxiosError(err) ? (err.response?.data?.error ?? 'Failed to send invitation') : 'Failed to send invitation')
+      toast.error(extractApiError(err, 'Failed to send invitation'))
     } finally {
       setSubmitting(false)
     }

@@ -5,8 +5,8 @@ import {
   Copy, Check, RefreshCw, Ban, Mail, Clock, AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import axios from 'axios'
 import { invitationAPI, type StaffInvitationRecord } from '@/lib/api'
+import { extractApiError, toastInvitationOutcome } from '@/lib/invitation-feedback'
 import { cn } from '@/lib/utils'
 
 interface InvitationsPanelProps {
@@ -79,20 +79,13 @@ export function InvitationsPanel({ invitations, loading, onRefresh }: Invitation
     setBusyId(id)
     try {
       const resp = await invitationAPI.resend(id)
-      const inv = resp.data.invitation
-      if (inv.invite_url) {
-        try {
-          await navigator.clipboard.writeText(inv.invite_url)
-          toast.success('Invitation resent — link copied')
-        } catch {
-          toast.success('Invitation resent')
-        }
-      } else {
-        toast.success('Invitation resent')
-      }
+      await toastInvitationOutcome(resp.data.invitation, {
+        action: 'resent',
+        serverMessage: resp.data.message,
+      })
       onRefresh()
     } catch (err) {
-      toast.error(axios.isAxiosError(err) ? (err.response?.data?.error ?? 'Resend failed') : 'Resend failed')
+      toast.error(extractApiError(err, 'Resend failed'))
     } finally {
       setBusyId(null)
     }
@@ -106,7 +99,7 @@ export function InvitationsPanel({ invitations, loading, onRefresh }: Invitation
       toast.success('Invitation revoked')
       onRefresh()
     } catch (err) {
-      toast.error(axios.isAxiosError(err) ? (err.response?.data?.error ?? 'Revoke failed') : 'Revoke failed')
+      toast.error(extractApiError(err, 'Revoke failed'))
     } finally {
       setBusyId(null)
     }

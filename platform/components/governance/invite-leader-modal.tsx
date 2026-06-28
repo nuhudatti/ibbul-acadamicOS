@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X, Loader2, Mail, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
-import axios from 'axios'
 import { invitationAPI } from '@/lib/api'
+import { extractApiError, toastInvitationOutcome } from '@/lib/invitation-feedback'
 import { loadAcademicTree, type TreeFaculty } from '@/lib/governance'
 import { cn } from '@/lib/utils'
 
@@ -97,6 +97,7 @@ export function InviteLeaderModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submitting) return
     if (!email.trim() || !firstName.trim() || !lastName.trim()) {
       toast.error('Email and full name are required')
       return
@@ -120,24 +121,11 @@ export function InviteLeaderModal({
         faculty_id: isDeanInviter ? ((lockedFacultyId ?? facultyId) || null) : (facultyId || null),
         department_id: departmentId || null,
       })
-      const inv = resp.data.invitation
-      if (inv.invite_url) {
-        try {
-          await navigator.clipboard.writeText(inv.invite_url)
-          toast.success('Invitation sent — link copied to clipboard')
-        } catch {
-          toast.success('Invitation created — copy the link from the invitations table')
-        }
-      } else {
-        toast.success(resp.data.message)
-      }
+      await toastInvitationOutcome(resp.data.invitation, { serverMessage: resp.data.message })
       onSuccess()
       onClose()
     } catch (err) {
-      const msg = axios.isAxiosError(err)
-        ? (err.response?.data?.error ?? 'Failed to send invitation')
-        : 'Failed to send invitation'
-      toast.error(msg)
+      toast.error(extractApiError(err, 'Failed to send invitation'))
     } finally {
       setSubmitting(false)
     }

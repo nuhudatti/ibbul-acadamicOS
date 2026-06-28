@@ -88,6 +88,17 @@ body {
 
 
 
+/* iOS Safari auto-zooms when focused inputs are below 16px — keep mobile forms stable */
+@media screen and (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+
+
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 
 ::-webkit-scrollbar-track { background: transparent; }
@@ -198,7 +209,7 @@ button, a, input, select, textarea {
 
   .auth-input {
 
-    @apply w-full h-10 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 outline-none;
+    @apply w-full h-10 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-base md:text-sm text-slate-900 outline-none;
 
     @apply placeholder:text-slate-400 focus:bg-white focus:border-brand-600 focus:ring-2 focus:ring-brand-100;
 
@@ -246,7 +257,7 @@ button, a, input, select, textarea {
 
   .institutional-input {
 
-    @apply w-full h-10 px-4 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 outline-none;
+    @apply w-full h-10 px-4 rounded-xl border border-slate-200 bg-slate-50 text-base md:text-sm text-slate-900 outline-none;
 
     @apply focus:bg-white focus:border-brand-600 focus:ring-2 focus:ring-brand-100;
 
