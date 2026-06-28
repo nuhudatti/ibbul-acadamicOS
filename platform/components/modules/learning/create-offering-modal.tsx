@@ -5,7 +5,22 @@ import { X, Loader2, BookOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import axios from 'axios'
 import { academicsAPI, coreAPI, learningAPI } from '@/lib/api'
+import { extractApiError } from '@/lib/api-errors'
 import { cn, getSemesterLabel } from '@/lib/utils'
+
+function defaultSessionLabel(): string {
+  const y = new Date().getFullYear()
+  return `${y}/${y + 1}`
+}
+
+function parseCourseList(data: unknown): AssignedCourse[] {
+  if (Array.isArray(data)) return data as AssignedCourse[]
+  if (data && typeof data === 'object') {
+    const record = data as { results?: AssignedCourse[] }
+    if (Array.isArray(record.results)) return record.results
+  }
+  return []
+}
 
 interface AssignedCourse {
   id: number
@@ -37,16 +52,33 @@ export function CreateOfferingModal({ open, onClose, onSuccess }: CreateOffering
     const load = async () => {
       setLoadingCourses(true)
       try {
-        const [coursesResp, sessionResp] = await Promise.all([
+        const [coursesResult, sessionResult] = await Promise.allSettled([
           academicsAPI.getMyAssignedCourses(),
           coreAPI.getCurrentSession(),
         ])
-        const data = coursesResp.data
-        setCourses(Array.isArray(data) ? data : data.results ?? [])
-        const sess = sessionResp.data?.name ?? sessionResp.data?.session ?? ''
-        setSession(sess || '2024/2025')
+
+        let loaded: AssignedCourse[] = []
+        if (coursesResult.status === 'fulfilled') {
+          loaded = parseCourseList(coursesResult.value.data)
+        } else {
+          // Fallback: core course list is already scoped to examiner assignments
+          try {
+            const fallback = await coreAPI.getCourses()
+            loaded = parseCourseList(fallback.data)
+          } catch {
+            toast.error(extractApiError(coursesResult.reason, 'Could not load your assigned courses'))
+          }
+        }
+        setCourses(loaded)
+
+        if (sessionResult.status === 'fulfilled') {
+          const data = sessionResult.value.data as { name?: string; session?: string }
+          setSession(data?.name ?? data?.session ?? defaultSessionLabel())
+        } else {
+          setSession(defaultSessionLabel())
+        }
       } catch {
-        toast.error('Could not load your assigned courses')
+        toast.error('Could not load course offering form')
       } finally {
         setLoadingCourses(false)
       }

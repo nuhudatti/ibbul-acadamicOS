@@ -485,7 +485,11 @@ def current_session(request):
     """Return the current active academic session."""
     session = AcademicSession.get_current()
     if not session:
-        return Response({'detail': 'No current session configured.'}, status=404)
+        return Response({
+            'name': None,
+            'is_current': False,
+            'detail': 'No current session configured.',
+        })
     return Response(AcademicSessionSerializer(session).data)
 
 

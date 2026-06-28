@@ -68,30 +68,33 @@ class CourseViewSet(viewsets.ReadOnlyModelViewSet):
         GET /api/academics/courses/my_assigned/
         """
         user = request.user
-        if user.role != UserRole.EXAMINER:
+        scope = getattr(request, 'scope', None) or build_scope(user)
+        if scope is None or scope.level != ScopeLevel.EXAMINER:
             return Response(
                 {'detail': 'This endpoint is for examiners only.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        scope = getattr(request, 'scope', None) or build_scope(user)
         assigned_ids = getattr(scope, 'assigned_course_ids', None) or []
         if not assigned_ids:
             courses = Course.objects.none()
         else:
             courses = Course.objects.filter(is_active=True, id__in=assigned_ids)
 
-        # Audit: examiner viewed their assigned courses
-        log_audit(
-            AuditLog.Action.RESULT_IMPORT_REPORT_DOWNLOAD,  # reuse for read-only listing
-            request=request,
-            user=user,
-            identifier=user.email or user.get_username(),
-            extra={
-                'source': 'api_examiner_assigned_courses',
-                'assigned_course_count': courses.count(),
-            },
-        )
+        try:
+            log_audit(
+                AuditLog.Action.RESULT_IMPORT_REPORT_DOWNLOAD,
+                request=request,
+                user=user,
+                identifier=user.email or user.get_username(),
+                extra={
+                    'source': 'api_examiner_assigned_courses',
+                    'assigned_course_count': courses.count(),
+                },
+            )
+        except Exception:
+            pass
+
         return Response(self.get_serializer(courses, many=True).data)
 
 
