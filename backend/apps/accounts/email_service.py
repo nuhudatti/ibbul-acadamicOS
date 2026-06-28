@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import html
 import logging
+import time
 from email.mime.image import MIMEImage
 from typing import Tuple
 
-from django.core.mail import EmailMultiAlternatives
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives, get_connection
 
 from apps.core.branding_service import LOGO_CID, get_logo_bytes, get_platform_branding_dict
 
@@ -48,16 +50,60 @@ ROLE_PURPOSE = {
 
 
 def email_configured() -> bool:
-    from django.conf import settings
     backend = getattr(settings, 'EMAIL_BACKEND', '')
-    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None)
+    host = getattr(settings, 'EMAIL_HOST', '')
     host_user = getattr(settings, 'EMAIL_HOST_USER', '')
     host_password = getattr(settings, 'EMAIL_HOST_PASSWORD', '')
-    if not backend or not from_email:
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', '')
+    if not backend or not from_email or not host:
         return False
     if 'console' in backend.lower() or 'filebased' in backend.lower():
         return False
     return bool(host_user and host_password)
+
+
+def email_config_summary() -> dict:
+    """Safe diagnostics for logs / test command (never exposes secrets)."""
+    return {
+        'backend': getattr(settings, 'EMAIL_BACKEND', ''),
+        'host': getattr(settings, 'EMAIL_HOST', ''),
+        'port': getattr(settings, 'EMAIL_PORT', ''),
+        'use_tls': getattr(settings, 'EMAIL_USE_TLS', False),
+        'use_ssl': getattr(settings, 'EMAIL_USE_SSL', False),
+        'user': getattr(settings, 'EMAIL_HOST_USER', ''),
+        'password_set': bool(getattr(settings, 'EMAIL_HOST_PASSWORD', '')),
+        'from_email': getattr(settings, 'DEFAULT_FROM_EMAIL', ''),
+        'reply_to': getattr(settings, 'EMAIL_REPLY_TO', '') or getattr(settings, 'SUPPORT_EMAIL', ''),
+        'timeout': getattr(settings, 'EMAIL_TIMEOUT', 25),
+        'configured': email_configured(),
+    }
+
+
+def _friendly_smtp_error(exc: Exception) -> str:
+    msg = str(exc).strip()
+    lower = msg.lower()
+    if 'authentication' in lower or '535' in msg or '401' in msg:
+        return (
+            'SendGrid rejected the API key. In Render, set EMAIL_HOST_PASSWORD (or SMTP_PASS) '
+            'to your SendGrid API key (starts with SG.). EMAIL_HOST_USER must be apikey.'
+        )
+    if 'timed out' in lower or 'timeout' in lower:
+        return (
+            'SendGrid SMTP timed out. Check EMAIL_HOST=smtp.sendgrid.net, EMAIL_PORT=587, '
+            'EMAIL_USE_TLS=true, and that Render allows outbound SMTP.'
+        )
+    if 'connection refused' in lower or 'network is unreachable' in lower or 'gaierror' in lower:
+        return (
+            'Could not connect to SendGrid SMTP. Verify EMAIL_HOST and EMAIL_PORT on the server.'
+        )
+    if '550' in msg or 'sender' in lower or 'from address' in lower:
+        return (
+            'SendGrid rejected the sender address. Verify DEFAULT_FROM_EMAIL (or SMTP_FROM) '
+            'as a verified Single Sender in your SendGrid dashboard.'
+        )
+    if '554' in msg or 'spam' in lower:
+        return 'SendGrid blocked this message. Check sender verification and recipient address.'
+    return msg[:500] if msg else 'Unknown SMTP error'
 
 
 def get_branding() -> dict:
@@ -193,38 +239,68 @@ def send_branded_email(
     plain_body: str,
     html_body: str,
 ) -> Tuple[bool, str]:
-    b = get_branding()
     if not email_configured():
-        logger.info('Email (dev/console): to=%s subject=%s', to, subject)
-        logger.info('Plain body:\n%s', plain_body[:1200])
-        return False, 'Email not configured — set SMTP variables in .env'
-
-    try:
-        msg = EmailMultiAlternatives(
-            subject=subject,
-            body=plain_body,
-            from_email=b['from_email'],
-            to=to,
-            headers={
-                'Reply-To': b['support_email'],
-                'X-Mailer': b['platform_name'],
-            },
+        hint = (
+            'Email is not configured on the server. Set EMAIL_BACKEND=smtp, EMAIL_HOST=smtp.sendgrid.net, '
+            'EMAIL_HOST_USER=apikey, EMAIL_HOST_PASSWORD=<SendGrid API key>, DEFAULT_FROM_EMAIL=<verified sender>. '
+            'SMTP_* names (SMTP_HOST, SMTP_PASS, SMTP_FROM) are also supported.'
         )
-        logo = get_logo_bytes()
-        if logo:
-            img_bytes, subtype = logo
-            mime_img = MIMEImage(img_bytes, _subtype=subtype)
-            mime_img.add_header('Content-ID', f'<{LOGO_CID}>')
-            mime_img.add_header('Content-Disposition', 'inline', filename=f'logo.{subtype}')
-            msg.attach(mime_img)
-        else:
-            html_body = html_body.replace(f'cid:{LOGO_CID}', '')
-        msg.attach_alternative(html_body, 'text/html')
-        msg.send(fail_silently=False)
-        return True, 'Email sent'
-    except Exception as exc:
-        logger.exception('Branded email failed to %s: %s', to, exc)
-        return False, str(exc)[:500]
+        logger.warning('Email not configured: %s', email_config_summary())
+        if settings.DEBUG:
+            logger.info('Email (dev): to=%s subject=%s', to, subject)
+            return False, hint
+        return False, hint
+
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', '') or get_branding()['from_email']
+    reply_to = getattr(settings, 'EMAIL_REPLY_TO', '').strip() or get_branding()['support_email']
+    b = get_branding()
+    retry_max = max(1, int(getattr(settings, 'EMAIL_SMTP_RETRY_MAX', 3)))
+    retry_delay = float(getattr(settings, 'EMAIL_SMTP_RETRY_DELAY', 1.0))
+    last_error = 'Email send failed'
+
+    for attempt in range(1, retry_max + 1):
+        try:
+            connection = get_connection(fail_silently=False)
+            msg = EmailMultiAlternatives(
+                subject=subject,
+                body=plain_body,
+                from_email=from_email,
+                to=to,
+                headers={
+                    'Reply-To': reply_to,
+                    'X-Mailer': b['platform_name'],
+                },
+                connection=connection,
+            )
+            try:
+                logo = get_logo_bytes()
+                if logo:
+                    img_bytes, subtype = logo
+                    mime_img = MIMEImage(img_bytes, _subtype=subtype)
+                    mime_img.add_header('Content-ID', f'<{LOGO_CID}>')
+                    mime_img.add_header('Content-Disposition', 'inline', filename=f'logo.{subtype}')
+                    msg.attach(mime_img)
+                else:
+                    html_body = html_body.replace(f'cid:{LOGO_CID}', '')
+            except Exception as logo_exc:
+                logger.warning('Logo attach skipped (email will still send): %s', logo_exc)
+                html_body = html_body.replace(f'cid:{LOGO_CID}', '')
+
+            msg.attach_alternative(html_body, 'text/html')
+            msg.send(fail_silently=False)
+            logger.info('Email sent to %s (attempt %s/%s)', to, attempt, retry_max)
+            return True, 'Email sent'
+        except Exception as exc:
+            last_error = _friendly_smtp_error(exc)
+            logger.warning(
+                'Branded email attempt %s/%s failed to %s: %s',
+                attempt, retry_max, to, exc,
+            )
+            if attempt < retry_max:
+                time.sleep(retry_delay)
+
+    logger.error('Branded email failed to %s after %s attempts: %s', to, retry_max, last_error)
+    return False, last_error
 
 
 def build_invitation_email(invitation) -> Tuple[str, str, str]:
@@ -350,25 +426,33 @@ def build_password_reset_email(*, user, reset_url: str) -> Tuple[str, str, str]:
 
 
 def send_invitation_email_branded(invitation) -> Tuple[bool, str]:
+    if not email_configured():
+        msg = (
+            'Email is not configured on the server. Set SendGrid variables in Render '
+            '(EMAIL_HOST_PASSWORD or SMTP_PASS, DEFAULT_FROM_EMAIL or SMTP_FROM). '
+            'Copy the invitation link from the Invitations table until SMTP is fixed.'
+        )
+        logger.error('Invitation email skipped — SMTP not configured: %s', email_config_summary())
+        return False, msg
+
     subject, plain, html_body = build_invitation_email(invitation)
     ok, msg = send_branded_email(to=[invitation.email], subject=subject, plain_body=plain, html_body=html_body)
     if ok:
         return True, 'Invitation email sent'
-    if not email_configured():
-        url = f"{get_branding()['frontend_url']}/invite/accept?token={invitation.token}"
-        logger.info('Invitation link (dev): %s -> %s', invitation.email, url)
-        return True, 'Email not configured — invitation link available for copy on dashboard'
     return False, msg
 
 
 def send_password_reset_email(*, user, reset_url: str) -> Tuple[bool, str]:
     if not user.email or '@placeholder.ibbul.edu.ng' in (user.email or ''):
         return False, 'No sendable email on account'
+    if not email_configured():
+        if settings.DEBUG:
+            logger.info('Password reset link (dev): %s -> %s', user.email, reset_url)
+            return False, 'Email not configured — reset link logged in server console (DEBUG only)'
+        return False, 'Password reset email is not configured on the server. Contact ICT support.'
+
     subject, plain, html_body = build_password_reset_email(user=user, reset_url=reset_url)
     ok, msg = send_branded_email(to=[user.email], subject=subject, plain_body=plain, html_body=html_body)
     if ok:
         return True, 'Password reset email sent'
-    if not email_configured():
-        logger.info('Password reset link (dev): %s -> %s', user.email, reset_url)
-        return True, 'Email not configured — reset link logged on server console'
     return False, msg

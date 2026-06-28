@@ -188,7 +188,7 @@ def get_logo_bytes_from_url(url: str) -> Optional[Tuple[bytes, str]]:
     try:
         import urllib.request
 
-        with urllib.request.urlopen(url, timeout=15) as resp:
+        with urllib.request.urlopen(url, timeout=5) as resp:
             data = resp.read()
         ext = 'png'
         if '.jpg' in url.lower() or '.jpeg' in url.lower():

@@ -10,6 +10,20 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+
+def _clean_env(key: str, default: str = '', *fallback_keys: str) -> str:
+    """Read env var with optional fallbacks; strip whitespace and surrounding quotes."""
+    for env_key in (key,) + fallback_keys:
+        raw = os.getenv(env_key)
+        if raw is None:
+            continue
+        val = str(raw).strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in '"\'':
+            val = val[1:-1].strip()
+        if val:
+            return val
+    return default
+
 # Build paths inside the project
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -328,14 +342,35 @@ EMAIL_LOGO_URL = os.getenv('EMAIL_LOGO_URL', '')  # Public HTTPS URL to logo ima
 EMAIL_ACCENT_COLOR = os.getenv('EMAIL_ACCENT_COLOR', '#1a35af')
 SUPPORT_EMAIL = os.getenv('SUPPORT_EMAIL', 'ict@ibbul.edu.ng')
 
-# Email — configure SMTP in production for real inbox delivery
-EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'IBBUL Academic OS <noreply@ibbul.edu.ng>')
+# Email — SendGrid / SMTP (supports EMAIL_* and SMTP_* env names from other projects)
+EMAIL_BACKEND = _clean_env(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',
+)
+EMAIL_HOST = _clean_env('EMAIL_HOST', 'smtp.sendgrid.net', 'SMTP_HOST')
+EMAIL_PORT = int(_clean_env('EMAIL_PORT', '587', 'SMTP_PORT') or '587')
+_smtp_secure = _clean_env('SMTP_SECURE', '').lower()
+if _smtp_secure in ('1', 'true', 'yes'):
+    EMAIL_USE_SSL = True
+    EMAIL_USE_TLS = False
+else:
+    EMAIL_USE_SSL = _clean_env('EMAIL_USE_SSL', '').lower() in ('1', 'true', 'yes')
+    EMAIL_USE_TLS = _clean_env('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
+EMAIL_HOST_USER = _clean_env('EMAIL_HOST_USER', 'apikey', 'SMTP_USER')
+EMAIL_HOST_PASSWORD = _clean_env('EMAIL_HOST_PASSWORD', '', 'SMTP_PASS')
+DEFAULT_FROM_EMAIL = _clean_env(
+    'DEFAULT_FROM_EMAIL',
+    'IBBUL Academic OS <noreply@ibbul.edu.ng>',
+    'SMTP_FROM',
+)
+EMAIL_REPLY_TO = _clean_env('EMAIL_REPLY_TO', '', 'SMTP_REPLY_TO')
+EMAIL_TIMEOUT = int(_clean_env('EMAIL_TIMEOUT', '25') or '25')
+EMAIL_SMTP_RETRY_MAX = int(_clean_env('EMAIL_SMTP_RETRY_MAX', _clean_env('SMTP_RETRY_MAX', '3')) or '3')
+_retry_delay_raw = _clean_env('EMAIL_SMTP_RETRY_DELAY', '')
+if _retry_delay_raw:
+    EMAIL_SMTP_RETRY_DELAY = float(_retry_delay_raw)
+else:
+    EMAIL_SMTP_RETRY_DELAY = float(_clean_env('SMTP_RETRY_DELAY_MS', '1000') or '1000') / 1000.0
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # Celery — Module 8: Background infrastructure & monitoring

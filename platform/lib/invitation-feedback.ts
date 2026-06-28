@@ -11,7 +11,7 @@ export function extractApiError(err: unknown, fallback: string): string {
       return 'Request timed out. The invitation may already exist — check the Invitations list before sending again.'
     }
     if (!err.response) {
-      return 'Network error — check your connection and try again.'
+      return 'Could not reach the server. Check your internet connection and that NEXT_PUBLIC_API_URL points to your live backend.'
     }
     const data = err.response.data
     if (data && typeof data === 'object') {
