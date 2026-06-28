@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { authAPI } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { extractFormError, formatApiErrorValue } from '@/lib/api-errors'
 import axios from 'axios'
 
 const RULES = [
@@ -46,9 +47,13 @@ export default function FirstLoginPage() {
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const data = err.response?.data
-        if (data?.current_password) setErrors({ current: data.current_password[0] })
-        else if (data?.new_password) setErrors({ newPwd: data.new_password[0] })
-        else setErrors({ general: data?.detail ?? data?.error ?? 'Failed to change password' })
+        if (data?.current_password) {
+          setErrors({ current: formatApiErrorValue(data.current_password, 'Invalid current password') })
+        } else if (data?.new_password) {
+          setErrors({ newPwd: formatApiErrorValue(data.new_password, 'Invalid new password') })
+        } else {
+          setErrors({ general: extractFormError(data, 'Failed to change password') })
+        }
       } else {
         setErrors({ general: 'Connection error. Please try again.' })
       }

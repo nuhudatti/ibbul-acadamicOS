@@ -70,7 +70,7 @@ function AcceptInvitationContent() {
 
     setSubmitting(true)
     try {
-      await invitationAPI.accept({ token, password, password_confirm: confirm })
+      await invitationAPI.accept({ token, password })
       setDone(true)
       toast.success('Account activated — you can sign in now')
     } catch (err) {

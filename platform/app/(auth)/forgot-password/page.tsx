@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import axios from 'axios'
 import { authAPI } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { extractFormError } from '@/lib/api-errors'
 import { AuthShell } from '@/components/auth/auth-shell'
 
 export default function ForgotPasswordPage() {
@@ -28,7 +29,7 @@ export default function ForgotPasswordPage() {
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const data = err.response?.data
-        setError(data?.detail ?? data?.error ?? 'Failed to send reset email')
+        setError(extractFormError(data, 'Failed to send reset email'))
       } else {
         setError('Connection error. Please try again.')
       }

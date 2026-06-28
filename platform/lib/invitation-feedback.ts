@@ -1,37 +1,11 @@
 /**
  * Accurate invitation toasts and API error messages for live/production.
  */
-import axios from 'axios'
 import { toast } from 'sonner'
 import type { StaffInvitationRecord } from '@/lib/api'
+import { extractApiError } from '@/lib/api-errors'
 
-export function extractApiError(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err)) {
-    if (err.code === 'ECONNABORTED') {
-      return 'Request timed out. The invitation may already exist — check the Invitations list before sending again.'
-    }
-    if (!err.response) {
-      return 'Could not reach the server. If you are on the live site, set BACKEND_URL on your frontend host to your Django API URL and redeploy.'
-    }
-    const data = err.response.data
-    if (err.response.status === 502 && data && typeof data === 'object') {
-      const record = data as Record<string, unknown>
-      if (typeof record.error === 'string' && record.error.trim()) return record.error
-      return 'Backend unreachable. Set BACKEND_URL on your frontend host (e.g. https://your-api.onrender.com) and redeploy.'
-    }
-    if (data && typeof data === 'object') {
-      const record = data as Record<string, unknown>
-      if (typeof record.error === 'string' && record.error.trim()) return record.error
-      if (typeof record.detail === 'string' && record.detail.trim()) return record.detail
-      if (typeof record.message === 'string' && record.message.trim()) return record.message
-    }
-    if (err.response.status === 403) return 'You do not have permission for this action.'
-    if (err.response.status === 500) {
-      return 'Server error — please try again. If it persists, contact ICT support.'
-    }
-  }
-  return fallback
-}
+export { extractApiError }
 
 async function copyInviteLink(url: string | null | undefined): Promise<boolean> {
   if (!url) return false

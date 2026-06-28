@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import axios from 'axios'
 import { authAPI } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { extractFormError } from '@/lib/api-errors'
 import { AuthShell } from '@/components/auth/auth-shell'
 
 function ResetPasswordForm() {
@@ -50,11 +51,10 @@ function ResetPasswordForm() {
       if (axios.isAxiosError(err)) {
         const data = err.response?.data as { errors?: Record<string, string[]>; error?: string }
         setError(
-          data?.errors?.token?.[0]
-          ?? data?.errors?.uidb64?.[0]
-          ?? data?.errors?.new_password?.[0]
-          ?? data?.error
-          ?? 'Could not reset password. The link may have expired — request a new one.'
+          extractFormError(
+            data,
+            'Could not reset password. The link may have expired — request a new one.',
+          ),
         )
       } else {
         setError('Connection error. Please try again.')

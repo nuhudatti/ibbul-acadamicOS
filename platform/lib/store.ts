@@ -47,16 +47,16 @@ export const useAuthStore = create<AuthState>()(
 
       setTokens: (access, refresh) => {
         tokenStorage.setTokens(access, refresh)
-        // Parse user data from JWT payload
         const payload = parseJWT(access)
         if (payload) {
-          // Store minimal user from JWT — profile endpoint fills the rest
           set((state) => ({
             isAuthenticated: true,
             user: state.user
-              ? { ...state.user, module_access: (payload.module_access as ModuleAccess[]) ?? [] }
-              : null,
+              ? { ...state.user, module_access: (payload.module_access as ModuleAccess[]) ?? state.user.module_access ?? [] }
+              : state.user,
           }))
+        } else {
+          set({ isAuthenticated: true })
         }
       },
 

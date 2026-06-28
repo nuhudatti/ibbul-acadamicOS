@@ -71,7 +71,7 @@ export function getStatusLabel(status: ResultStatus): string {
   return labels[status] ?? status
 }
 
-export function getRoleLabel(role: UserRole): string {
+export function getRoleLabel(role: UserRole | string | null | undefined): string {
   const labels: Record<UserRole, string> = {
     SUPER_ADMIN: 'Administrator',
     FACULTY_ADMIN: 'Dean',
@@ -80,7 +80,16 @@ export function getRoleLabel(role: UserRole): string {
     EXAMINER: 'Lecturer',
     STUDENT: 'Student',
   }
-  return labels[role] ?? role
+  if (role == null) return 'User'
+  if (typeof role === 'string' && role in labels) {
+    return labels[role as UserRole]
+  }
+  if (typeof role === 'string') return role.replace(/_/g, ' ')
+  if (typeof role === 'object' && role !== null && 'message' in role) {
+    const msg = (role as { message?: unknown }).message
+    if (typeof msg === 'string' && msg.trim()) return msg.trim()
+  }
+  return String(role)
 }
 
 export function getRoleColor(role: UserRole): string {

@@ -2,13 +2,12 @@ import type { Metadata, Viewport } from 'next'
 import { Toaster } from 'sonner'
 import './globals.css'
 
-export const metadata: Metadata = {
+export const   metadata: Metadata = {
   title: {
     default: 'IBBUL Academic Platform',
     template: '%s | IBBUL',
   },
   description: 'Ibrahim Badamasi Babangida University Lapai — Academic Operating System',
-  icons: { icon: '/icons/favicon.ico' },
 }
 
 export const viewport: Viewport = {

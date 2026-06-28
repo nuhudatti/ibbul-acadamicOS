@@ -9,7 +9,8 @@ import {
   BarChart3, ShieldCheck, Building2, LogOut,
   ChevronDown, Layers, UserCheck, X,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, getRoleLabel } from '@/lib/utils'
+import { safeDisplayText } from '@/lib/api-errors'
 import { useAuthStore, useUIStore } from '@/lib/store'
 import { usePlatformBrand } from '@/hooks/use-platform-brand'
 import { PlatformLogo } from '@/components/branding/platform-logo'
@@ -148,8 +149,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   }
 
   const contextLine =
-    user?.department_name ??
-    user?.faculty_name ??
+    safeDisplayText(user?.department_name) ||
+    safeDisplayText(user?.faculty_name) ||
     (user?.role === 'SUPER_ADMIN' ? 'Institution-wide' : null)
 
   const navItemClass = (active: boolean) =>
@@ -310,10 +311,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[12px] font-semibold truncate text-white/95">
-                {user.first_name ?? user.full_name}
+                {safeDisplayText(user.first_name) || safeDisplayText(user.full_name, 'User')}
               </div>
               <div className="text-[10px] text-white/40 truncate">
-                {user.department_name ?? user.role.replace(/_/g, ' ')}
+                {safeDisplayText(user.department_name) || getRoleLabel(user.role).replace(/^\w/, (c) => c.toUpperCase())}
               </div>
             </div>
           </div>

@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { authAPI, tokenStorage, coreAPI } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { cn, isTokenExpired } from '@/lib/utils'
+import { extractFormError } from '@/lib/api-errors'
 import type { LoginResponse } from '@/lib/types'
 import axios from 'axios'
 import { AuthFrame } from '@/components/auth/auth-frame'
@@ -60,10 +61,11 @@ export default function LoginPage() {
       const response = await authAPI.login({ username: trimmedUsername, password: trimmedPassword })
       const data = response.data as LoginResponse
 
-      setTokens(data.tokens.access, data.tokens.refresh)
       setUser(data.user)
+      setTokens(data.tokens.access, data.tokens.refresh)
 
-      toast.success(`Welcome back, ${data.user.first_name || data.user.full_name}!`)
+      const displayName = data.user.first_name || data.user.full_name || 'there'
+      toast.success(`Welcome back, ${displayName}!`)
 
       if (data.user.is_first_login) {
         router.replace('/first-login')
@@ -74,19 +76,9 @@ export default function LoginPage() {
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const data = err.response?.data
-        if (data?.non_field_errors) {
-          setErrors({ general: data.non_field_errors[0] })
-        } else if (data?.detail) {
-          setErrors({ general: data.detail })
-        } else if (data?.error) {
-          setErrors({ general: data.error })
-        } else if (data?.username) {
-          setErrors({ username: data.username[0] })
-        } else if (data?.password) {
-          setErrors({ password: data.password[0] })
-        } else {
-          setErrors({ general: 'Invalid credentials. Please check your details.' })
-        }
+        setErrors({
+          general: extractFormError(data, 'Invalid credentials. Please check your details.'),
+        })
       } else {
         setErrors({ general: 'Connection error. Please try again.' })
       }

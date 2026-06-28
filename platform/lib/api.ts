@@ -6,12 +6,14 @@ import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axio
 import { isTokenExpired } from './utils'
 import { resolveApiBase } from './api-config'
 
-const { origin: BASE_ORIGIN, apiPrefix: API_PREFIX } = resolveApiBase()
+function getApiPrefix(): string {
+  return resolveApiBase().apiPrefix
+}
 
 /** Multipart POST — bypasses axios default JSON Content-Type so browser sets boundary. */
 function multipartPost(path: string, formData: FormData, timeout = 120_000) {
   const token = tokenStorage.getAccess()
-  return axios.post(`${API_PREFIX}${path}`, formData, {
+  return axios.post(`${getApiPrefix()}${path}`, formData, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     timeout,
   })
@@ -51,9 +53,16 @@ export const tokenStorage = {
 // ─── Axios instance ────────────────────────────────────────────────────────────
 
 const api: AxiosInstance = axios.create({
-  baseURL: API_PREFIX,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30_000,
+})
+
+// Resolve base URL per request so production browser always uses /api/backend proxy.
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  if (!config.baseURL && !config.url?.startsWith('http')) {
+    config.baseURL = getApiPrefix()
+  }
+  return config
 })
 
 // ─── Request interceptor — inject Bearer token ─────────────────────────────────
@@ -65,7 +74,7 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   // Refresh access token if expired and refresh token exists
   if (access && isTokenExpired(access) && refresh && !isTokenExpired(refresh)) {
     try {
-      const response = await axios.post(`${API_PREFIX}/accounts/token/refresh/`, {
+      const response = await axios.post(`${getApiPrefix()}/accounts/token/refresh/`, {
         refresh,
       })
       access = response.data.access
@@ -97,7 +106,7 @@ api.interceptors.response.use(
       const refresh = tokenStorage.getRefresh()
       if (refresh && !isTokenExpired(refresh)) {
         try {
-          const response = await axios.post(`${API_PREFIX}/accounts/token/refresh/`, { refresh })
+          const response = await axios.post(`${getApiPrefix()}/accounts/token/refresh/`, { refresh })
           const newAccess = response.data.access
           const newRefresh = response.data.refresh ?? refresh
           tokenStorage.setTokens(newAccess, newRefresh)
@@ -421,10 +430,10 @@ export const invitationAPI = {
     api.post<{ message: string; invitation: StaffInvitationRecord }>(`/accounts/invitations/${id}/revoke/`),
 
   verify: (token: string) =>
-    axios.get(`${API_PREFIX}/accounts/invitations/verify/`, { params: { token } }),
+    axios.get(`${getApiPrefix()}/accounts/invitations/verify/`, { params: { token } }),
 
-  accept: (data: { token: string; password: string; password_confirm: string }) =>
-    axios.post(`${API_PREFIX}/accounts/invitations/accept/`, data),
+  accept: (data: { token: string; password: string }) =>
+    axios.post(`${getApiPrefix()}/accounts/invitations/accept/`, data),
 }
 
 export const governanceStaffAPI = {

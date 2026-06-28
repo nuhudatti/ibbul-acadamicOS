@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation'
 import { Bell, Menu, ChevronRight } from 'lucide-react'
 import { cn, getRoleLabel, getRoleColor } from '@/lib/utils'
+import { safeDisplayText } from '@/lib/api-errors'
 import { useAuthStore, useUIStore } from '@/lib/store'
 import { usePlatformBrand } from '@/hooks/use-platform-brand'
 import { PlatformLogo } from '@/components/branding/platform-logo'
@@ -95,7 +96,7 @@ export function Topbar() {
 
       <div className="hidden md:flex items-center gap-2 text-sm text-slate-500 flex-shrink-0">
         <span>{greeting},</span>
-        <span className="font-semibold text-slate-800">{user?.first_name ?? 'User'}</span>
+        <span className="font-semibold text-slate-800">{safeDisplayText(user?.first_name, 'User')}</span>
         {user?.role && (
           <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', getRoleColor(user.role))}>
             {getRoleLabel(user.role)}
