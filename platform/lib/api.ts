@@ -10,10 +10,16 @@ function getApiPrefix(): string {
   return resolveApiBase().apiPrefix
 }
 
+/** Ensure path has leading + trailing slash for Django API routes. */
+function apiPath(path: string): string {
+  const withLeading = path.startsWith('/') ? path : `/${path}`
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`
+}
+
 /** Multipart POST — bypasses axios default JSON Content-Type so browser sets boundary. */
 function multipartPost(path: string, formData: FormData, timeout = 120_000) {
   const token = tokenStorage.getAccess()
-  return axios.post(`${getApiPrefix()}${path}`, formData, {
+  return axios.post(`${getApiPrefix()}${apiPath(path)}`, formData, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     timeout,
   })
@@ -62,6 +68,9 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (!config.baseURL && !config.url?.startsWith('http')) {
     config.baseURL = getApiPrefix()
   }
+  if (config.url && !config.url.startsWith('http')) {
+    config.url = apiPath(config.url)
+  }
   return config
 })
 
@@ -74,7 +83,7 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   // Refresh access token if expired and refresh token exists
   if (access && isTokenExpired(access) && refresh && !isTokenExpired(refresh)) {
     try {
-      const response = await axios.post(`${getApiPrefix()}/accounts/token/refresh/`, {
+      const response = await axios.post(`${getApiPrefix()}${apiPath('/accounts/token/refresh')}`, {
         refresh,
       })
       access = response.data.access
@@ -106,7 +115,7 @@ api.interceptors.response.use(
       const refresh = tokenStorage.getRefresh()
       if (refresh && !isTokenExpired(refresh)) {
         try {
-          const response = await axios.post(`${getApiPrefix()}/accounts/token/refresh/`, { refresh })
+          const response = await axios.post(`${getApiPrefix()}${apiPath('/accounts/token/refresh')}`, { refresh })
           const newAccess = response.data.access
           const newRefresh = response.data.refresh ?? refresh
           tokenStorage.setTokens(newAccess, newRefresh)
@@ -430,10 +439,10 @@ export const invitationAPI = {
     api.post<{ message: string; invitation: StaffInvitationRecord }>(`/accounts/invitations/${id}/revoke/`),
 
   verify: (token: string) =>
-    axios.get(`${getApiPrefix()}/accounts/invitations/verify/`, { params: { token } }),
+    axios.get(`${getApiPrefix()}${apiPath('/accounts/invitations/verify')}`, { params: { token } }),
 
   accept: (data: { token: string; password: string }) =>
-    axios.post(`${getApiPrefix()}/accounts/invitations/accept/`, data),
+    axios.post(`${getApiPrefix()}${apiPath('/accounts/invitations/accept')}`, data),
 }
 
 export const governanceStaffAPI = {

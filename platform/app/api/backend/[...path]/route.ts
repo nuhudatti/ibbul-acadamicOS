@@ -20,7 +20,9 @@ async function proxyRequest(req: NextRequest, pathSegments: string[]): Promise<N
   const backend = getBackendUrlForProxy()
   const path = pathSegments.join('/')
   const search = req.nextUrl.search
-  const target = `${backend}/api/${path}${search}`
+  // Django expects trailing slashes (APPEND_SLASH); POST redirects break auth.
+  const djangoPath = path.endsWith('/') ? path : `${path}/`
+  const target = `${backend}/api/${djangoPath}${search}`
 
   const headers = new Headers()
   for (const name of FORWARD_HEADERS) {

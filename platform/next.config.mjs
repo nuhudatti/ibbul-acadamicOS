@@ -13,11 +13,8 @@ const nextConfig = {
   },
   async rewrites() {
     return [
-      // ── Django backend passthrough (internal use) ──────────────────────────
-      {
-        source: '/api/backend/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/:path*`,
-      },
+      // Django API: use app/api/backend/[...path]/route.ts (BACKEND_URL at runtime).
+      // Do NOT rewrite /api/backend here — a rewrite to localhost breaks production on Vercel.
 
       // ── Results System (IBBUL Result Checker — Vite app on port 5173) ──────
       // Proxied at /results-app/* so it shares the same origin (port 3000)
