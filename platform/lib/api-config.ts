@@ -49,9 +49,15 @@ export function resolveApiBase(): { origin: string; apiPrefix: string } {
   return { origin: backend, apiPrefix: `${backend}/api` }
 }
 
+declare global {
+  interface Window {
+    __IBBUL_UPLOAD_API__?: string
+  }
+}
+
 /**
  * Multipart uploads (results Excel, lesson video/PDF) must bypass the Vercel proxy —
- * serverless functions reject bodies over ~4.5MB. Uses NEXT_PUBLIC_API_URL when set.
+ * serverless functions reject bodies over ~4.5MB.
  */
 export function resolveMultipartApiPrefix(): string {
   const direct = stripTrailingSlash(
@@ -62,6 +68,10 @@ export function resolveMultipartApiPrefix(): string {
 
   if (typeof window !== 'undefined') {
     const isLocal = isLocalHostname(window.location.hostname)
+    const injected = stripTrailingSlash(window.__IBBUL_UPLOAD_API__ || '')
+    if (!isLocal && injected) {
+      return `${injected}/api`
+    }
     if (!isLocal && direct) {
       return `${direct}/api`
     }

@@ -7,6 +7,7 @@ import { getBackendUrlForProxy } from '@/lib/api-config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 const FORWARD_HEADERS = [
   'authorization',

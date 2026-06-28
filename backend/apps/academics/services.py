@@ -1010,6 +1010,10 @@ class ResultUploadService:
         finally:
             if tmp_path and os.path.isfile(tmp_path):
                 os.unlink(tmp_path)
+            try:
+                uploaded_file.seek(0)
+            except Exception:
+                pass
 
     @staticmethod
     def save_semester_summaries_from_file(

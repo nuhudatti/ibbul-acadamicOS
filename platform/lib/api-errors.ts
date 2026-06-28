@@ -58,6 +58,12 @@ export function extractApiError(err: unknown, fallback: string): string {
       return 'Could not reach the server. For file uploads, set NEXT_PUBLIC_API_URL on Vercel to your Render backend URL.'
     }
     const data = err.response.data
+    if (typeof data === 'string' && data.includes('<html')) {
+      if (err.response.status === 500) {
+        return 'Server error during upload. Redeploy backend and frontend, then try again.'
+      }
+      return fallback
+    }
     if (err.response.status === 502 && data && typeof data === 'object') {
       const record = data as Record<string, unknown>
       if (typeof record.error === 'string' && record.error.trim()) return record.error

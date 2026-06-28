@@ -4,6 +4,7 @@ Supports university wide-format Excel (Untitled.xls style), CSV, and flat row fo
 """
 import hashlib
 import json
+import logging
 from decimal import Decimal
 from typing import List, Dict, Optional
 
@@ -23,12 +24,23 @@ from apps.accounts.audit import log_audit
 from apps.accounts.models import AuditLog
 from apps.accounts.scope import is_super_admin, is_hod, get_hod_department_id, can_manage_department_results
 
+logger = logging.getLogger(__name__)
+
 
 def _hod_department(user) -> Optional[Department]:
     dept_id = get_hod_department_id(user)
     if dept_id:
         return Department.objects.filter(pk=dept_id).first()
     return getattr(user, 'department_fk', None)
+
+
+def _json_safe_report(report: List[Dict]) -> List[Dict]:
+    """Strip non-JSON-serializable _parsed blobs before API response."""
+    safe = []
+    for row in report:
+        item = {k: v for k, v in row.items() if k != '_parsed'}
+        safe.append(item)
+    return safe
 
 
 def _parse_and_validate(file, session: str, semester: str, department: Optional[Department]) -> tuple:
@@ -54,55 +66,61 @@ class HODUploadValidateView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        user = request.user
-        if not can_manage_department_results(user):
-            return Response(
-                {'error': 'Only HOD/Department Admin can upload results. Assign your department in profile.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        department = _hod_department(user)
-        if not is_super_admin(user) and not department:
-            return Response(
-                {'error': 'HOD must be assigned to a department. Set Department in your profile.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        file = request.FILES.get('file')
-        session = (request.data.get('session') or '').strip()
-        semester = (request.data.get('semester') or '').strip()
-        if not file:
-            return Response({'error': 'File is required'}, status=status.HTTP_400_BAD_REQUEST)
-        if not session or not semester:
-            return Response({'error': 'Session and semester are required'}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
+            user = request.user
+            if not can_manage_department_results(user):
+                return Response(
+                    {'error': 'Only HOD/Department Admin can upload results. Assign your department in profile.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            department = _hod_department(user)
+            if not is_super_admin(user) and not department:
+                return Response(
+                    {'error': 'HOD must be assigned to a department. Set Department in your profile.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            file = request.FILES.get('file')
+            session = (request.data.get('session') or '').strip()
+            semester = (request.data.get('semester') or '').strip()
+            if not file:
+                return Response({'error': 'File is required'}, status=status.HTTP_400_BAD_REQUEST)
+            if not session or not semester:
+                return Response({'error': 'Session and semester are required'}, status=status.HTTP_400_BAD_REQUEST)
+
             rows_data, validation_report, summaries = _parse_and_validate(file, session, semester, department)
-        except Exception as e:
+
+            valid_count = sum(1 for r in validation_report if r.get('valid'))
+            invalid_count = len(validation_report) - valid_count
+            detected_session, detected_semester = ResultUploadService.detect_upload_session_semester(file)
+
+            return Response({
+                'total_rows': len(validation_report),
+                'valid_rows': valid_count,
+                'invalid_rows': invalid_count,
+                'valid': invalid_count == 0 and valid_count > 0,
+                'validation_report': _json_safe_report(validation_report),
+                'file_checksum': self._checksum(file),
+                'parse_format': 'ibbul_university',
+                'parsed_row_count': len(rows_data),
+                'detected_session': detected_session,
+                'detected_semester': detected_semester,
+                'session_mismatch': bool(
+                    detected_session and session and detected_session.strip() != session.strip()
+                ),
+                'semester_mismatch': bool(
+                    detected_semester and semester and detected_semester.strip().upper() != semester.strip().upper()
+                ),
+            })
+        except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        valid_count = sum(1 for r in validation_report if r.get('valid'))
-        invalid_count = len(validation_report) - valid_count
-        detected_session, detected_semester = ResultUploadService.detect_upload_session_semester(file)
-
-        return Response({
-            'total_rows': len(validation_report),
-            'valid_rows': valid_count,
-            'invalid_rows': invalid_count,
-            'valid': invalid_count == 0 and valid_count > 0,
-            'validation_report': validation_report,
-            'file_checksum': self._checksum(file),
-            'parse_format': 'ibbul_university',
-            'parsed_row_count': len(rows_data),
-            'detected_session': detected_session,
-            'detected_semester': detected_semester,
-            'session_mismatch': bool(
-                detected_session and session and detected_session.strip() != session.strip()
-            ),
-            'semester_mismatch': bool(
-                detected_semester and semester and detected_semester.strip().upper() != semester.strip().upper()
-            ),
-        })
+        except Exception as e:
+            logger.exception('HOD upload validate failed')
+            return Response(
+                {'error': f'Validation failed on server: {e}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     def _checksum(self, file) -> str:
         file.seek(0)
@@ -134,7 +152,7 @@ class HODUploadPreviewView(APIView):
             preview_report = validation_report[:10]
             return Response({
                 'preview_rows': [r.get('_parsed', {}) for r in preview_report],
-                'validation_report': preview_report,
+                'validation_report': _json_safe_report(preview_report),
                 'total_rows': len(validation_report),
                 'preview_count': len(preview_report),
             })
@@ -175,7 +193,7 @@ class HODUploadSubmitView(APIView):
 
         if not valid_rows:
             return Response(
-                {'error': 'No valid rows to submit', 'validation_report': validation_report},
+                {'error': 'No valid rows to submit', 'validation_report': _json_safe_report(validation_report)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -319,7 +337,7 @@ class HODUploadSubmitView(APIView):
             'error_count': len(invalid_rows),
             'summaries_saved': summaries_saved,
             'submit_errors': submit_errors[:20],
-            'validation_report': validation_report,
+            'validation_report': _json_safe_report(validation_report),
         })
 
     def _result_checksum(self, student, course, score, session, semester) -> str:
