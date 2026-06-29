@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { authAPI, tokenStorage, coreAPI } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { cn, isTokenExpired } from '@/lib/utils'
-import { extractFormError } from '@/lib/api-errors'
+import { extractApiError, extractFormError } from '@/lib/api-errors'
 import type { LoginResponse } from '@/lib/types'
 import axios from 'axios'
 import { AuthFrame } from '@/components/auth/auth-frame'
@@ -57,6 +57,7 @@ export default function LoginPage() {
     }
 
     setLoading(true)
+    tokenStorage.clearTokens()
     try {
       const response = await authAPI.login({ username: trimmedUsername, password: trimmedPassword })
       const data = response.data as LoginResponse
@@ -77,10 +78,15 @@ export default function LoginPage() {
       if (axios.isAxiosError(err)) {
         const data = err.response?.data
         setErrors({
-          general: extractFormError(data, 'Invalid credentials. Please check your details.'),
+          general: extractFormError(
+            data,
+            extractApiError(err, 'Invalid credentials. Please check your details.'),
+          ),
         })
       } else {
-        setErrors({ general: 'Connection error. Please try again.' })
+        setErrors({
+          general: extractApiError(err, 'Connection error. Please try again.'),
+        })
       }
     } finally {
       setLoading(false)

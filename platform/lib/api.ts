@@ -14,10 +14,33 @@ function getApiPrefix(): string {
 /** Ensure path has leading + trailing slash for Django API routes. */
 function apiPath(path: string | null | undefined): string {
   const raw = safeStr(path, '/')
-  const [pathname, suffix = ''] = raw.split(/([?#].*)/)
+  const qIndex = raw.search(/[?#]/)
+  const pathname = qIndex === -1 ? raw : raw.slice(0, qIndex)
+  const suffix = qIndex === -1 ? '' : raw.slice(qIndex)
   const withLeading = pathname.startsWith('/') ? pathname : `/${pathname}`
   const normalized = withLeading.endsWith('/') ? withLeading : `${withLeading}/`
   return `${normalized}${suffix}`
+}
+
+/** Routes that must not send stale tokens or trigger refresh (login, setup, etc.). */
+const PUBLIC_API_PATHS = [
+  '/accounts/login/',
+  '/accounts/token/refresh/',
+  '/accounts/forgot-password/',
+  '/accounts/reset-password/',
+  '/accounts/invitations/verify/',
+  '/accounts/invitations/accept/',
+  '/core/setup/status/',
+  '/core/platform-branding/public/',
+]
+
+function isPublicApiRequest(url?: string): boolean {
+  if (!url) return false
+  const pathOnly = url.split('?')[0].split('#')[0]
+  const normalized = pathOnly.endsWith('/') ? pathOnly : `${pathOnly}/`
+  return PUBLIC_API_PATHS.some(
+    (p) => normalized === p || normalized.endsWith(p) || normalized.includes(p),
+  )
 }
 
 /** Multipart POST through the same /api/backend client as login. */
@@ -84,6 +107,14 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 // ─── Request interceptor — inject Bearer token ─────────────────────────────────
 
 api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
+  // Never attach or refresh tokens on public auth routes (fixes login with stale localStorage).
+  if (isPublicApiRequest(config.url)) {
+    if (config.headers) {
+      delete config.headers.Authorization
+    }
+    return config
+  }
+
   let access = tokenStorage.getAccess()
   const refresh = tokenStorage.getRefresh()
 
@@ -96,12 +127,9 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
       access = response.data.access
       const newRefresh = response.data.refresh ?? refresh
       if (access) tokenStorage.setTokens(access, newRefresh)
-    } catch {
+    } catch (refreshErr) {
       tokenStorage.clearTokens()
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login'
-      }
-      return Promise.reject(new Error('Session expired'))
+      return Promise.reject(refreshErr)
     }
   }
 
@@ -117,7 +145,12 @@ api.interceptors.response.use(
   response => response,
   async error => {
     const original = error.config
-    if (error.response?.status === 401 && !original._retry) {
+    if (
+      error.response?.status === 401
+      && original
+      && !original._retry
+      && !isPublicApiRequest(original.url)
+    ) {
       original._retry = true
       const refresh = tokenStorage.getRefresh()
       if (refresh && !isTokenExpired(refresh)) {
