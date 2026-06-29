@@ -9,9 +9,27 @@ import { authAPI, tokenStorage, coreAPI } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { cn, isTokenExpired } from '@/lib/utils'
 import { extractApiError, extractFormError } from '@/lib/api-errors'
-import { parseLoginResponse } from '@/lib/login-response'
+import type { User } from '@/lib/types'
 import axios from 'axios'
 import { AuthFrame } from '@/components/auth/auth-frame'
+
+function coerceResponseBody(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>
+  }
+  return null
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -61,20 +79,31 @@ export default function LoginPage() {
 
     try {
       const response = await authAPI.login({ username: trimmedUsername, password: trimmedPassword })
-      const parsed = parseLoginResponse(response.data)
 
-      if (!parsed) {
+      console.log('LOGIN RAW RESPONSE', response.status, response.data)
+      console.log('typeof response.data', typeof response.data)
+      console.log('keys', Object.keys((response.data as object) || {}))
+
+      const data = coerceResponseBody(response.data)
+      const user = data?.user as User | undefined
+      const tokens = data?.tokens as { access?: string; refresh?: string } | undefined
+      const access = tokens?.access ?? (data?.access as string | undefined)
+      const refresh = tokens?.refresh ?? (data?.refresh as string | undefined)
+
+      if (!user || typeof access !== 'string' || !access || typeof refresh !== 'string' || !refresh) {
+        console.error('LOGIN FAILURE', response.data)
+        console.trace()
         setErrors({ general: 'Sign-in response was incomplete. Please try again or contact ICT support.' })
         return
       }
 
-      setTokens(parsed.access, parsed.refresh)
-      setUser(parsed.user)
+      setTokens(access, refresh)
+      setUser(user)
 
-      const displayName = parsed.user.first_name || parsed.user.full_name || 'there'
+      const displayName = user.first_name || user.full_name || 'there'
       toast.success(`Welcome back, ${displayName}!`)
 
-      const target = parsed.user.is_first_login ? '/first-login' : '/dashboard'
+      const target = user.is_first_login ? '/first-login' : '/dashboard'
       window.location.assign(target)
     } catch (err) {
       if (axios.isAxiosError(err)) {

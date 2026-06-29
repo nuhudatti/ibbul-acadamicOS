@@ -178,7 +178,7 @@ api.interceptors.response.use(
 
 export const authAPI = {
   login: (credentials: { username: string; password: string }) =>
-    api.post('/accounts/login/', credentials, { timeout: 90_000 }),
+    api.post('/accounts/login/', credentials, { timeout: 120_000 }),
 
   refreshToken: (refresh: string) =>
     api.post('/accounts/token/refresh/', { refresh }),
