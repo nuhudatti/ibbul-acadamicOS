@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { usePlatformBrand } from '@/hooks/use-platform-brand'
 import { InstitutionalMark } from '@/components/branding/institutional-mark'
@@ -29,6 +30,11 @@ export function PlatformLogo({
 }: PlatformLogoProps) {
   const { logo, isReady } = usePlatformBrand()
   const { box, mark } = SIZE_MAP[size]
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const ringClass =
     variant === 'on-dark'
@@ -39,7 +45,7 @@ export function PlatformLogo({
           ? 'ring-1 ring-brand-200/80 bg-white shadow-sm'
           : 'bg-white'
 
-  if (isReady && logo) {
+  if (mounted && isReady && logo) {
     return (
       <div className={cn(box, 'rounded-xl overflow-hidden flex-shrink-0', ringClass, className)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -87,7 +87,7 @@ export const tokenStorage = {
 
 const api: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
-  timeout: 30_000,
+  timeout: 60_000,
 })
 
 // Resolve base URL per request so production browser always uses /api/backend proxy.
@@ -178,7 +178,7 @@ api.interceptors.response.use(
 
 export const authAPI = {
   login: (credentials: { username: string; password: string }) =>
-    api.post('/accounts/login/', credentials),
+    api.post('/accounts/login/', credentials, { timeout: 90_000 }),
 
   refreshToken: (refresh: string) =>
     api.post('/accounts/token/refresh/', { refresh }),

@@ -50,9 +50,9 @@ export function formatApiErrorValue(value: unknown, fallback = 'Something went w
 
 /** Extract a readable message from a failed axios/API call. */
 export function extractApiError(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err)) {
+    if (axios.isAxiosError(err)) {
     if (err.code === 'ECONNABORTED') {
-      return 'Upload timed out. Try a smaller file or check your connection.'
+      return 'Request timed out. The server may be waking up — please wait a moment and try again.'
     }
     if (!err.response) {
       return 'Could not reach the server. Check your connection and try again.'

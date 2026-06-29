@@ -13,9 +13,15 @@ import type { LoginResponse } from '@/lib/types'
 import axios from 'axios'
 import { AuthFrame } from '@/components/auth/auth-frame'
 
+function hasValidTokens(data: LoginResponse): data is LoginResponse & { tokens: { access: string; refresh: string } } {
+  const access = data?.tokens?.access
+  const refresh = data?.tokens?.refresh
+  return typeof access === 'string' && access.length > 0 && typeof refresh === 'string' && refresh.length > 0
+}
+
 export default function LoginPage() {
   const router = useRouter()
-  const { setUser, setTokens, isAuthenticated, _hasHydrated } = useAuthStore()
+  const { setUser, setTokens, isAuthenticated, logout } = useAuthStore()
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -33,12 +39,11 @@ export default function LoginPage() {
   }, [router])
 
   useEffect(() => {
-    if (!_hasHydrated) return
     const access = tokenStorage.getAccess()
     if (isAuthenticated && access && !isTokenExpired(access)) {
       router.replace('/dashboard')
     }
-  }, [_hasHydrated, isAuthenticated, router])
+  }, [isAuthenticated, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -58,22 +63,25 @@ export default function LoginPage() {
 
     setLoading(true)
     tokenStorage.clearTokens()
+    logout()
+
     try {
       const response = await authAPI.login({ username: trimmedUsername, password: trimmedPassword })
       const data = response.data as LoginResponse
 
-      setUser(data.user)
+      if (!data?.user || !hasValidTokens(data)) {
+        setErrors({ general: 'Sign-in response was incomplete. Please try again or contact ICT support.' })
+        return
+      }
+
       setTokens(data.tokens.access, data.tokens.refresh)
+      setUser(data.user)
 
       const displayName = data.user.first_name || data.user.full_name || 'there'
       toast.success(`Welcome back, ${displayName}!`)
 
-      if (data.user.is_first_login) {
-        router.replace('/first-login')
-        return
-      }
-
-      router.replace('/dashboard')
+      const target = data.user.is_first_login ? '/first-login' : '/dashboard'
+      window.location.assign(target)
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const data = err.response?.data

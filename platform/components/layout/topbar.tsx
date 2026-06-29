@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { Bell, Menu, ChevronRight } from 'lucide-react'
 import { cn, getRoleLabel, getRoleColor } from '@/lib/utils'
@@ -54,12 +55,14 @@ export function Topbar() {
   const sectionKey = Object.keys(SECTION_MAP).find((k) => pathname.startsWith(k))
   const section = sectionKey ? SECTION_MAP[sectionKey] : null
 
-  const greeting = (() => {
+  const [greeting, setGreeting] = useState('Hello')
+
+  useEffect(() => {
     const hour = new Date().getHours()
-    if (hour < 12) return 'Good morning'
-    if (hour < 17) return 'Good afternoon'
-    return 'Good evening'
-  })()
+    if (hour < 12) setGreeting('Good morning')
+    else if (hour < 17) setGreeting('Good afternoon')
+    else setGreeting('Good evening')
+  }, [])
 
   return (
     <header className="h-16 flex items-center justify-between gap-3 px-4 sm:px-6 bg-white border-b border-slate-200/80 sticky top-0 z-30 flex-shrink-0">
