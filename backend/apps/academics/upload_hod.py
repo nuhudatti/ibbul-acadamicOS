@@ -5,8 +5,10 @@ Supports university wide-format Excel (Untitled.xls style), CSV, and flat row fo
 import hashlib
 import json
 import logging
+import os
+import tempfile
 from decimal import Decimal
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -19,6 +21,7 @@ from django.utils import timezone
 from .models import Result, ResultUploadBatch, ResultRow, Course, Department, SemesterSummary
 from .ibbul_format import MANUAL_COURSE_LINE_FORMAT, MANUAL_SUMMARY_FORMAT
 from .services import ResultUploadService, get_course_for_upload, GPACalculationService
+from .upload_timing import UploadStageTimer
 from apps.accounts.models import User, UserRole
 from apps.accounts.audit import log_audit
 from apps.accounts.models import AuditLog
@@ -43,21 +46,57 @@ def _json_safe_report(report: List[Dict]) -> List[Dict]:
     return safe
 
 
-def _parse_and_validate(file, session: str, semester: str, department: Optional[Department]) -> tuple:
-    """Parse with IBBUL parsers then validate. Returns (rows_data, validation_report, summaries)."""
-    rows_data, summaries = ResultUploadService.parse_upload_from_uploaded_file_with_summaries(
-        file, session, semester
-    )
-    if not rows_data:
-        raise ValueError(
-            'No result rows found in file. Use the official IBBUL university Excel format '
-            '(MATRIC.NO column with course columns) or a CSV with student_id, course_code, score.'
+def _parse_and_validate(
+    file,
+    session: str,
+    semester: str,
+    department: Optional[Department],
+    timer: Optional[UploadStageTimer] = None,
+) -> Tuple[List[Dict], List[Dict], List[Dict], str, Optional[str], Optional[str]]:
+    """
+    Parse once, validate with bulk caches.
+    Returns (rows_data, validation_report, summaries, checksum, detected_session, detected_semester).
+    """
+    if timer is not None:
+        timer.stage('receive_file')
+
+    content = file.read()
+    try:
+        file.seek(0)
+    except Exception:
+        pass
+    checksum = hashlib.sha256(content).hexdigest()
+
+    ext = os.path.splitext(getattr(file, 'name', '') or '')[1].lower()
+    if ext not in ('.csv', '.xlsx', '.xls'):
+        raise ValueError('Only .csv, .xlsx, .xls are allowed.')
+
+    if timer is not None:
+        timer.stage('save_temp_file')
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        rows_data, summaries, detected_session, detected_semester = ResultUploadService.parse_upload_path(
+            tmp_path, session, semester, timer=timer
         )
-    dept_id = department.id if department else None
-    validation_report = ResultUploadService.validate_parsed_rows(
-        rows_data, session, semester, department_id=dept_id
-    )
-    return rows_data, validation_report, summaries
+        if not rows_data:
+            raise ValueError(
+                'No result rows found in file. Use the official IBBUL university Excel format '
+                '(MATRIC.NO column with course columns) or a CSV with student_id, course_code, score.'
+            )
+
+        dept_id = department.id if department else None
+        validation_report = ResultUploadService.validate_parsed_rows(
+            rows_data, session, semester, department_id=dept_id, timer=timer
+        )
+        return rows_data, validation_report, summaries, checksum, detected_session, detected_semester
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            os.unlink(tmp_path)
 
 
 class HODUploadValidateView(APIView):
@@ -89,19 +128,22 @@ class HODUploadValidateView(APIView):
             if not session or not semester:
                 return Response({'error': 'Session and semester are required'}, status=status.HTTP_400_BAD_REQUEST)
 
-            rows_data, validation_report, summaries = _parse_and_validate(file, session, semester, department)
+            timer = UploadStageTimer('HOD upload validate')
+            rows_data, validation_report, summaries, file_checksum, detected_session, detected_semester = (
+                _parse_and_validate(file, session, semester, department, timer=timer)
+            )
 
             valid_count = sum(1 for r in validation_report if r.get('valid'))
             invalid_count = len(validation_report) - valid_count
-            detected_session, detected_semester = ResultUploadService.detect_upload_session_semester(file)
 
-            return Response({
+            timer.stage('response_build')
+            response_payload = {
                 'total_rows': len(validation_report),
                 'valid_rows': valid_count,
                 'invalid_rows': invalid_count,
                 'valid': invalid_count == 0 and valid_count > 0,
                 'validation_report': _json_safe_report(validation_report),
-                'file_checksum': self._checksum(file),
+                'file_checksum': file_checksum,
                 'parse_format': 'ibbul_university',
                 'parsed_row_count': len(rows_data),
                 'detected_session': detected_session,
@@ -112,7 +154,12 @@ class HODUploadValidateView(APIView):
                 'semester_mismatch': bool(
                     detected_semester and semester and detected_semester.strip().upper() != semester.strip().upper()
                 ),
-            })
+            }
+            stages, total_ms = timer.finish()
+            response_payload['timing_ms'] = {name: ms for name, ms in stages}
+            response_payload['timing_total_ms'] = total_ms
+
+            return Response(response_payload)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
@@ -146,9 +193,10 @@ class HODUploadPreviewView(APIView):
         if not file:
             return Response({'error': 'File is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        validator = HODUploadValidateView()
         try:
-            rows_data, validation_report, _ = _parse_and_validate(file, session, semester, department)
+            rows_data, validation_report, _, _, _, _ = _parse_and_validate(
+                file, session, semester, department
+            )
             preview_report = validation_report[:10]
             return Response({
                 'preview_rows': [r.get('_parsed', {}) for r in preview_report],
@@ -184,7 +232,9 @@ class HODUploadSubmitView(APIView):
             return Response({'error': 'File, session, and semester are required'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            rows_data, validation_report, summaries = _parse_and_validate(file, session, semester, department)
+            rows_data, validation_report, summaries, file_checksum, _, _ = _parse_and_validate(
+                file, session, semester, department
+            )
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -197,7 +247,6 @@ class HODUploadSubmitView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        file_checksum = HODUploadValidateView()._checksum(file)
         dept_id = department.id if department else None
 
         with transaction.atomic():

@@ -26,6 +26,87 @@ def _course_code_variants(normalized_code: str) -> List[str]:
     return [normalized_code]
 
 
+def _normalize_semester_for_upload(semester: str) -> str:
+    """Normalize semester label to FIRST or SECOND."""
+    sem_val = (semester or '').strip().upper()
+    if sem_val in ('FIRST', 'SECOND'):
+        return sem_val
+    if '1' in sem_val or 'FIRST' in sem_val:
+        return 'FIRST'
+    if '2' in sem_val or 'SECOND' in sem_val:
+        return 'SECOND'
+    return sem_val
+
+
+def _pick_course_for_upload(
+    candidates: List[Course],
+    department_id: Optional[int],
+    borrowed_ids: set,
+) -> Optional[Course]:
+    if not candidates:
+        return None
+    if department_id is None:
+        return candidates[0]
+    in_dept = [c for c in candidates if getattr(c, 'department_id', None) == department_id]
+    if in_dept:
+        return in_dept[0]
+    unassigned = [c for c in candidates if getattr(c, 'department_id', None) is None]
+    if unassigned:
+        return unassigned[0]
+    borrowed = [c for c in candidates if c.id in borrowed_ids]
+    if borrowed:
+        return borrowed[0]
+    return candidates[0]
+
+
+def _build_course_upload_cache(department_id: Optional[int]) -> Dict[str, Optional[Course]]:
+    """Load catalogue once; map every code variant to the resolved upload course."""
+    courses = list(Course.objects.filter(is_active=True).select_related('department'))
+    variant_candidates: Dict[str, List[Course]] = {}
+    for course in courses:
+        seen_ids: set = set()
+        for variant in _course_code_variants((course.code or '').strip().replace(' ', '').upper()):
+            if not variant:
+                continue
+            bucket = variant_candidates.setdefault(variant, [])
+            if course.id not in seen_ids:
+                bucket.append(course)
+                seen_ids.add(course.id)
+
+    borrowed_ids: set = set()
+    if department_id is not None:
+        borrowed_ids = set(
+            DepartmentBorrowedCourse.objects.filter(department_id=department_id).values_list(
+                'course_id', flat=True
+            )
+        )
+
+    cache: Dict[str, Optional[Course]] = {}
+    for variant, candidates in variant_candidates.items():
+        cache[variant] = _pick_course_for_upload(candidates, department_id, borrowed_ids)
+    return cache
+
+
+def _resolve_course_from_cache(course_code: str, cache: Dict[str, Optional[Course]]) -> Optional[Course]:
+    normalized = (course_code or '').strip().replace(' ', '').upper()
+    if not normalized:
+        return None
+    for variant in _course_code_variants(normalized):
+        course = cache.get(variant)
+        if course is not None:
+            return course
+    return None
+
+
+def _excel_cell_str(val) -> str:
+    if val is None:
+        return ''
+    s = str(val).strip()
+    if s.lower() in ('nan', 'nat', 'none', ''):
+        return ''
+    return s
+
+
 def _friendly_report_error(exc: Exception) -> str:
     """Turn an exception into a short, clear message for the error report (non-technical)."""
     msg = str(exc).strip()
@@ -931,11 +1012,14 @@ class ResultUploadService:
         raise ValueError(f'Unsupported file format: {ext}')
 
     @staticmethod
-    def detect_upload_session_semester(uploaded_file) -> Tuple[Optional[str], Optional[str]]:
+    def detect_upload_session_semester(uploaded_file, raw_rows: Optional[List[List]] = None) -> Tuple[Optional[str], Optional[str]]:
         """Read session/semester printed on an official IBBUL Excel sheet header."""
         import os
         import tempfile
         from .parsers.ibbul_wide import detect_session_semester_from_sheet
+
+        if raw_rows is not None:
+            return detect_session_semester_from_sheet(raw_rows)
 
         ext = os.path.splitext(getattr(uploaded_file, 'name', '') or '')[1].lower()
         if ext not in ('.xlsx', '.xls'):
@@ -957,26 +1041,50 @@ class ResultUploadService:
                 pass
 
     @staticmethod
-    def _parse_upload_file_rows_with_summaries(
-        file_path: str, session: str, semester: str
-    ) -> Tuple[List[Dict], List[Dict]]:
-        """Parse upload file; return (result_rows, semester_summaries from sheet)."""
+    def parse_upload_path(
+        file_path: str,
+        session: str,
+        semester: str,
+        timer=None,
+    ) -> Tuple[List[Dict], List[Dict], Optional[str], Optional[str]]:
+        """Parse a saved upload file once; return rows, summaries, detected session/semester."""
         import os
+
         ext = os.path.splitext(file_path)[1].lower()
         if ext in ('.xlsx', '.xls'):
-            from .parsers.ibbul_wide import parse_ibbul_university_excel, parse_ibbul_wide_excel
-            raw_rows = ResultUploadService._read_excel_raw_rows(file_path, ext)
+            from .parsers.ibbul_wide import (
+                parse_ibbul_university_excel,
+                parse_ibbul_wide_excel,
+                detect_session_semester_from_sheet,
+            )
+            raw_rows = ResultUploadService._read_excel_raw_rows(file_path, ext, timer=timer)
+            if timer is not None:
+                timer.stage('header_validation')
+            detected_session, detected_semester = detect_session_semester_from_sheet(raw_rows)
             if not raw_rows:
-                return [], []
+                return [], [], detected_session, detected_semester
+            if timer is not None:
+                timer.stage('parse_rows')
             uni_results, summaries = parse_ibbul_university_excel(
                 raw_rows, session=session, semester=semester
             )
             if uni_results:
-                return uni_results, summaries
+                return uni_results, summaries, detected_session, detected_semester
             wide_results = parse_ibbul_wide_excel(raw_rows, session=session, semester=semester)
-            return wide_results or [], []
+            return wide_results or [], [], detected_session, detected_semester
+
         rows = ResultUploadService._parse_upload_file_rows(file_path, session, semester)
-        return rows, []
+        return rows, [], None, None
+
+    @staticmethod
+    def _parse_upload_file_rows_with_summaries(
+        file_path: str, session: str, semester: str, timer=None
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """Parse upload file; return (result_rows, semester_summaries from sheet)."""
+        rows, summaries, _, _ = ResultUploadService.parse_upload_path(
+            file_path, session, semester, timer=timer
+        )
+        return rows, summaries
 
     @staticmethod
     def parse_upload_from_uploaded_file(uploaded_file, session: str, semester: str) -> List[Dict]:
@@ -988,7 +1096,7 @@ class ResultUploadService:
 
     @staticmethod
     def parse_upload_from_uploaded_file_with_summaries(
-        uploaded_file, session: str, semester: str
+        uploaded_file, session: str, semester: str, timer=None
     ) -> Tuple[List[Dict], List[Dict]]:
         """Parse uploaded file; return result rows and per-student summary rows from the sheet."""
         import os
@@ -1000,13 +1108,16 @@ class ResultUploadService:
 
         tmp_path = None
         try:
+            if timer is not None:
+                timer.stage('save_temp_file')
             with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
                 for chunk in uploaded_file.chunks():
                     tmp.write(chunk)
                 tmp_path = tmp.name
-            return ResultUploadService._parse_upload_file_rows_with_summaries(
-                tmp_path, session, semester
+            rows, summaries, _, _ = ResultUploadService.parse_upload_path(
+                tmp_path, session, semester, timer=timer
             )
+            return rows, summaries
         finally:
             if tmp_path and os.path.isfile(tmp_path):
                 os.unlink(tmp_path)
@@ -1067,28 +1178,69 @@ class ResultUploadService:
         session: str,
         semester: str,
         department_id: Optional[int] = None,
+        timer=None,
     ) -> List[Dict]:
-        """Validate canonical parsed rows (same rules as batch upload). Returns per-row report."""
-        from apps.accounts.models import UserRole
+        """Validate canonical parsed rows. Uses bulk caches — no per-row DB queries."""
+        from common.validators.student_id_validator import validate_student_id_format
 
-        report: List[Dict] = []
+        if timer is not None:
+            timer.stage('student_cache')
+
+        session_val = (session or '').strip()
+        semester_val = _normalize_semester_for_upload(semester)
+
+        matric_set = set()
+        for data in rows_data:
+            sid = (data.get('student_id') or data.get('matric_number') or '').strip().upper()
+            if sid:
+                matric_set.add(sid)
+
         dept = Department.objects.filter(pk=department_id).first() if department_id else None
 
+        student_cache = {
+            u.student_id.upper(): u
+            for u in User.objects.filter(
+                student_id__in=matric_set,
+                role=UserRole.STUDENT,
+            ).select_related('department_fk')
+        }
+
+        if timer is not None:
+            timer.stage('course_cache')
+
+        course_cache = _build_course_upload_cache(department_id)
+
+        if timer is not None:
+            timer.stage('duplicate_cache')
+
+        student_ids = [s.id for s in student_cache.values()]
+        existing_pairs: set = set()
+        if student_ids and session_val and semester_val:
+            existing_pairs = set(
+                Result.objects.filter(
+                    student_id__in=student_ids,
+                    session=session_val,
+                    semester=semester_val,
+                    is_deleted=False,
+                ).values_list('student_id', 'course_id')
+            )
+
+        if timer is not None:
+            timer.stage('row_validation')
+
+        report: List[Dict] = []
         for line_no, data in enumerate(rows_data, start=1):
             errors: List[str] = []
             warnings: List[str] = []
 
             student_id = (data.get('student_id') or data.get('matric_number') or '').strip().upper()
             course_code = (data.get('course_code') or '').strip().replace(' ', '').upper()
-            # Form session/semester (HOD upload UI) override file header when explicitly set
-            session_val = (session or '').strip() or (data.get('session') or '').strip()
-            semester_val = (semester or '').strip().upper() if (semester or '').strip() else (data.get('semester') or '')
-            if semester_val and str(semester_val).upper() not in ('FIRST', 'SECOND'):
-                sem_upper = str(semester_val).upper()
-                if '1' in sem_upper or 'FIRST' in sem_upper:
-                    semester_val = 'FIRST'
-                elif '2' in sem_upper or 'SECOND' in sem_upper:
-                    semester_val = 'SECOND'
+            row_session = (session or '').strip() or (data.get('session') or '').strip()
+            row_semester = (
+                _normalize_semester_for_upload(semester)
+                if (semester or '').strip()
+                else _normalize_semester_for_upload(data.get('semester') or '')
+            )
             score_raw = data.get('score')
 
             if not student_id:
@@ -1103,19 +1255,26 @@ class ResultUploadService:
             score = None
 
             if student_id and not errors:
-                try:
-                    student = ResultUploadService.get_student(student_id)
+                student = student_cache.get(student_id)
+                if student is None:
+                    try:
+                        validate_student_id_format(student_id)
+                        errors.append(
+                            f'Student {student_id} is not in the system. '
+                            'Add them via Invite or bulk CSV first — results can be saved before they activate.'
+                        )
+                    except ValueError as exc:
+                        errors.append(str(exc))
+                elif dept is not None:
                     student_dept_id = getattr(student, 'department_fk_id', None)
-                    if dept is not None and student_dept_id is not None and student_dept_id != dept.id:
+                    if student_dept_id is not None and student_dept_id != dept.id:
                         errors.append(
                             f'Student {student_id} is not in department {dept.code}. '
                             'Assign them to your department in User management.'
                         )
-                except ValueError as exc:
-                    errors.append(str(exc))
 
             if course_code and not errors:
-                course = get_course_for_upload(course_code, department_id=department_id)
+                course = _resolve_course_from_cache(course_code, course_cache)
                 if not course:
                     errors.append(
                         f'Course {course_code} is not in the catalogue. Add the course in Courses first.'
@@ -1134,10 +1293,10 @@ class ResultUploadService:
                 warnings.append(f'Invalid grade "{grade}"; use A–F or leave blank.')
 
             if student and course and score is not None and not errors:
-                if ResultUploadService.check_duplicate_result(student, course, session_val, semester_val):
+                if (student.id, course.id) in existing_pairs:
                     errors.append(
                         f'Result already saved for {student_id} · {course_code} · '
-                        f'{session_val} {semester_val}. Open All Results and clear filters to view it.'
+                        f'{row_session} {row_semester}. Open All Results and clear filters to view it.'
                     )
 
             report.append({
@@ -1155,22 +1314,45 @@ class ResultUploadService:
         return report
 
     @staticmethod
-    def _read_excel_raw_rows(file_path: str, ext: str) -> List[List]:
-        """Read first usable Excel sheet as raw cell grid."""
+    def _read_excel_raw_rows(file_path: str, ext: str, timer=None) -> List[List]:
+        """Read first usable Excel sheet as raw cell grid (openpyxl read_only when possible)."""
         if ext == '.xls':
             try:
                 import xlrd
+                if timer is not None:
+                    timer.stage('open_workbook')
                 wb = xlrd.open_workbook(file_path)
                 sh = wb.sheet_by_index(0)
+                if timer is not None:
+                    timer.stage('read_worksheet')
                 return [
                     [xlrd.sheet.cell_displaytext(sh, r, c) for c in range(sh.ncols)]
                     for r in range(sh.nrows)
                 ]
             except Exception:
                 pass  # fall through — file may be xlsx saved with .xls extension
-        import pandas as pd
-        df = pd.read_excel(file_path, header=None, engine='openpyxl')
-        return df.fillna('').values.tolist()
+
+        try:
+            from openpyxl import load_workbook
+            if timer is not None:
+                timer.stage('open_workbook')
+            wb = load_workbook(file_path, read_only=True, data_only=True)
+            ws = wb.active
+            if timer is not None:
+                timer.stage('read_worksheet')
+            rows: List[List] = []
+            for row in ws.iter_rows(values_only=True):
+                rows.append([_excel_cell_str(c) for c in row])
+            wb.close()
+            return rows
+        except Exception:
+            import pandas as pd
+            if timer is not None:
+                timer.stage('open_workbook')
+            df = pd.read_excel(file_path, header=None, engine='openpyxl')
+            if timer is not None:
+                timer.stage('read_worksheet')
+            return df.fillna('').values.tolist()
 
     @staticmethod
     def _write_error_report_csv(batch: ResultUploadBatch, report_failed: List[Dict]) -> None:
