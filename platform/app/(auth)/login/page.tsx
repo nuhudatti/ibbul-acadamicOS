@@ -9,15 +9,9 @@ import { authAPI, tokenStorage, coreAPI } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { cn, isTokenExpired } from '@/lib/utils'
 import { extractApiError, extractFormError } from '@/lib/api-errors'
-import type { LoginResponse } from '@/lib/types'
+import { parseLoginResponse } from '@/lib/login-response'
 import axios from 'axios'
 import { AuthFrame } from '@/components/auth/auth-frame'
-
-function hasValidTokens(data: LoginResponse): data is LoginResponse & { tokens: { access: string; refresh: string } } {
-  const access = data?.tokens?.access
-  const refresh = data?.tokens?.refresh
-  return typeof access === 'string' && access.length > 0 && typeof refresh === 'string' && refresh.length > 0
-}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -67,20 +61,20 @@ export default function LoginPage() {
 
     try {
       const response = await authAPI.login({ username: trimmedUsername, password: trimmedPassword })
-      const data = response.data as LoginResponse
+      const parsed = parseLoginResponse(response.data)
 
-      if (!data?.user || !hasValidTokens(data)) {
+      if (!parsed) {
         setErrors({ general: 'Sign-in response was incomplete. Please try again or contact ICT support.' })
         return
       }
 
-      setTokens(data.tokens.access, data.tokens.refresh)
-      setUser(data.user)
+      setTokens(parsed.access, parsed.refresh)
+      setUser(parsed.user)
 
-      const displayName = data.user.first_name || data.user.full_name || 'there'
+      const displayName = parsed.user.first_name || parsed.user.full_name || 'there'
       toast.success(`Welcome back, ${displayName}!`)
 
-      const target = data.user.is_first_login ? '/first-login' : '/dashboard'
+      const target = parsed.user.is_first_login ? '/first-login' : '/dashboard'
       window.location.assign(target)
     } catch (err) {
       if (axios.isAxiosError(err)) {

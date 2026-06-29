@@ -41,11 +41,22 @@ export interface AuthTokens {
   refresh: string
 }
 
-export interface LoginResponse {
+/** Django login — nested tokens (current accounts login view). */
+export interface LoginResponseNested {
   user: User
   tokens: AuthTokens
-  message: string
+  message?: string
 }
+
+/** Django login — flat JWT fields (SimpleJWT-style). */
+export interface LoginResponseFlat {
+  user: User
+  access: string
+  refresh: string
+  message?: string
+}
+
+export type LoginResponse = LoginResponseNested | LoginResponseFlat
 
 export interface JWTPayload {
   user_id: number
