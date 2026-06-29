@@ -3,8 +3,10 @@ Academic Services
 Business logic for GPA/CGPA calculation, result processing, and academic operations
 Fat services pattern - all business logic here
 """
+import hashlib
+import json
 import re
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Q
@@ -1127,24 +1129,64 @@ class ResultUploadService:
                 pass
 
     @staticmethod
+    def _result_row_checksum(student, course, score, session: str, semester: str) -> str:
+        data = {
+            'student_id': student.student_id,
+            'course_id': course.id,
+            'score': str(score),
+            'session': session,
+            'semester': semester,
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+    @staticmethod
     def save_semester_summaries_from_file(
         summaries: List[Dict],
         session: str,
         semester: str,
         upload_batch: Optional[ResultUploadBatch] = None,
+        student_cache: Optional[Dict[str, User]] = None,
     ) -> int:
-        """Persist GPA/RCU/CGPA etc. exactly as in the uploaded sheet."""
-        saved = 0
-        for s in summaries or []:
+        """Persist GPA/RCU/CGPA etc. exactly as in the uploaded sheet (bulk writes)."""
+        if not summaries:
+            return 0
+
+        matric_set = {
+            (s.get('student_id') or '').strip().upper()
+            for s in summaries
+            if (s.get('student_id') or '').strip()
+        }
+        if student_cache is None:
+            student_cache = {}
+        missing = matric_set - set(student_cache.keys())
+        if missing:
+            for user in User.objects.filter(student_id__in=missing, role=UserRole.STUDENT):
+                student_cache[user.student_id.upper()] = user
+
+        student_ids = [u.id for u in student_cache.values() if u.student_id.upper() in matric_set]
+        existing: Dict[Tuple[int, str, str], SemesterSummary] = {}
+        if student_ids:
+            for summary in SemesterSummary.objects.filter(student_id__in=student_ids):
+                existing[(summary.student_id, summary.session, summary.semester)] = summary
+
+        to_create: List[SemesterSummary] = []
+        to_update: List[SemesterSummary] = []
+        update_fields = [
+            'le', 'nss', 'rcu', 'ecu', 'cp', 'gpa', 'trcu', 'tecu', 'tcp',
+            'pcgpa', 'cgpa', 'outstanding_courses', 'remarks', 'standing', 'raw_summary',
+            'upload_batch',
+        ]
+
+        for s in summaries:
             student_id = (s.get('student_id') or '').strip().upper()
             if not student_id:
                 continue
-            student = User.objects.filter(student_id=student_id, role=UserRole.STUDENT).first()
+            student = student_cache.get(student_id)
             if not student:
                 continue
             sess = s.get('session') or session
             sem = s.get('semester') or semester
-            defaults = {
+            field_values = {
                 'le': str(s.get('le', '')),
                 'nss': str(s.get('nss', '')),
                 'rcu': str(s.get('rcu', '')),
@@ -1161,16 +1203,260 @@ class ResultUploadService:
                 'standing': str(s.get('standing', '')),
                 'raw_summary': '',
             }
-            if upload_batch is not None:
-                defaults['upload_batch'] = upload_batch
-            SemesterSummary.objects.update_or_create(
-                student=student,
-                session=sess,
-                semester=sem,
-                defaults=defaults,
+            key = (student.id, sess, sem)
+            if key in existing:
+                obj = existing[key]
+                for name, value in field_values.items():
+                    setattr(obj, name, value)
+                if upload_batch is not None:
+                    obj.upload_batch = upload_batch
+                to_update.append(obj)
+            else:
+                create_kw = dict(field_values, student=student, session=sess, semester=sem)
+                if upload_batch is not None:
+                    create_kw['upload_batch'] = upload_batch
+                to_create.append(SemesterSummary(**create_kw))
+                existing[key] = to_create[-1]
+
+        if to_create:
+            SemesterSummary.objects.bulk_create(to_create, batch_size=200)
+        if to_update:
+            SemesterSummary.objects.bulk_update(to_update, fields=update_fields, batch_size=200)
+        return len(to_create) + len(to_update)
+
+    @staticmethod
+    @transaction.atomic
+    def submit_hod_validated_rows(
+        *,
+        batch: ResultUploadBatch,
+        valid_rows: List[Dict],
+        invalid_rows: List[Dict],
+        uploaded_by: User,
+        department: Optional[Department],
+        session: str,
+        semester: str,
+        summaries: Optional[List[Dict]] = None,
+        timer=None,
+    ) -> Dict[str, Any]:
+        """
+        Persist a validated HOD upload using bulk DB operations (no per-row queries).
+        """
+        session_val = (session or '').strip()
+        semester_val = _normalize_semester_for_upload(semester)
+        dept_id = department.id if department else None
+        submit_errors: List[str] = []
+
+        if timer is not None:
+            timer.stage('student_cache')
+
+        matric_set = {
+            (row.get('matric_no') or '').strip().upper()
+            for row in valid_rows
+            if (row.get('matric_no') or '').strip()
+        }
+        student_cache = {
+            u.student_id.upper(): u
+            for u in User.objects.filter(
+                student_id__in=matric_set,
+                role=UserRole.STUDENT,
+            ).select_related('department_fk')
+        }
+
+        if timer is not None:
+            timer.stage('course_cache')
+
+        course_cache = _build_course_upload_cache(dept_id)
+
+        claim_ids: set = set()
+        for row in valid_rows:
+            course_code = (row.get('course_code') or '').strip().replace(' ', '').upper()
+            course = _resolve_course_from_cache(course_code, course_cache)
+            if course and dept_id and not course.department_id:
+                claim_ids.add(course.id)
+        if claim_ids:
+            Course.objects.filter(id__in=claim_ids, department_id__isnull=True).update(
+                department_id=dept_id
             )
-            saved += 1
-        return saved
+
+        if timer is not None:
+            timer.stage('existing_results_cache')
+
+        student_ids = [s.id for s in student_cache.values()]
+        existing_by_key: Dict[Tuple[int, int], Result] = {}
+        if student_ids:
+            for result in Result.objects.filter(
+                student_id__in=student_ids,
+                session=session_val,
+                semester=semester_val,
+            ):
+                existing_by_key[(result.student_id, result.course_id)] = result
+
+        if timer is not None:
+            timer.stage('persist_results')
+
+        to_create: List[Result] = []
+        to_update: List[Result] = []
+        pending_new_keys: set = set()
+
+        for row_data in valid_rows:
+            parsed = row_data.get('_parsed') or {}
+            matric_no = (row_data.get('matric_no') or '').strip().upper()
+            course_code = (row_data.get('course_code') or '').strip().replace(' ', '').upper()
+
+            try:
+                score = Decimal(str(row_data['score']))
+            except Exception:
+                submit_errors.append(f'{matric_no}/{course_code}: invalid score')
+                continue
+
+            student = student_cache.get(matric_no)
+            if not student:
+                submit_errors.append(f'{matric_no}/{course_code}: student not found')
+                continue
+
+            course = _resolve_course_from_cache(course_code, course_cache)
+            if not course:
+                submit_errors.append(f'{matric_no}/{course_code}: course not found')
+                continue
+
+            grade = (parsed.get('grade') or row_data.get('grade') or '').strip().upper()
+            if grade not in ('A', 'B', 'C', 'D', 'E', 'F'):
+                grade = ''
+
+            checksum = ResultUploadService._result_row_checksum(
+                student, course, score, session_val, semester_val
+            )
+            key = (student.id, course.id)
+
+            if key in existing_by_key:
+                result = existing_by_key[key]
+                if not result.is_deleted:
+                    submit_errors.append(f'{matric_no}/{course_code}: duplicate result')
+                    continue
+                result.is_deleted = False
+                result.deleted_at = None
+                result.deleted_by = None
+                result.score = score
+                result.status = 'HOD_REVIEW'
+                result.uploaded_by = uploaded_by
+                result.upload_batch = batch
+                result.department = department
+                result.checksum = checksum
+                if grade:
+                    result.grade = grade
+                to_update.append(result)
+                continue
+
+            if key in pending_new_keys:
+                submit_errors.append(f'{matric_no}/{course_code}: duplicate row in file')
+                continue
+
+            create_kw = dict(
+                student=student,
+                course=course,
+                score=score,
+                session=session_val,
+                semester=semester_val,
+                status='HOD_REVIEW',
+                uploaded_by=uploaded_by,
+                department=department,
+                upload_batch=batch,
+                checksum=checksum,
+            )
+            if grade:
+                create_kw['grade'] = grade
+            to_create.append(Result(**create_kw))
+            pending_new_keys.add(key)
+
+        if to_create:
+            Result.objects.bulk_create(to_create, batch_size=500)
+        if to_update:
+            Result.objects.bulk_update(
+                to_update,
+                fields=[
+                    'is_deleted', 'deleted_at', 'deleted_by', 'score', 'status',
+                    'uploaded_by', 'upload_batch', 'department', 'checksum', 'grade',
+                ],
+                batch_size=500,
+            )
+
+        created_count = len(to_create) + len(to_update)
+
+        if timer is not None:
+            timer.stage('persist_error_rows')
+
+        report_failed: List[Dict] = []
+        error_row_models: List[ResultRow] = []
+        seen_line_nos: set = set()
+
+        for row in invalid_rows:
+            parsed = row.get('_parsed') or {}
+            errs = row.get('errors') or []
+            line_no = int(row.get('row_number') or 0) or 0
+            if line_no in seen_line_nos:
+                line_no = max(seen_line_nos, default=0) + 1
+            seen_line_nos.add(line_no)
+            err_msg = '; '.join(errs)[:500] if errs else 'Validation failed'
+            report_failed.append({
+                'line_no': row.get('row_number') or '',
+                'reg_number': row.get('matric_no') or parsed.get('student_id') or '',
+                'course_code': row.get('course_code') or parsed.get('course_code') or '',
+                'error_message': err_msg,
+            })
+            error_row_models.append(
+                ResultRow(
+                    batch=batch,
+                    line_no=line_no,
+                    reg_number=row.get('matric_no') or '',
+                    course_code=row.get('course_code') or '',
+                    status=ResultRow.RowStatus.ERROR,
+                    error_message=err_msg,
+                    session=session,
+                    semester=semester,
+                )
+            )
+
+        for err_msg in submit_errors:
+            parts = err_msg.split(':', 1)
+            key = parts[0] if parts else err_msg
+            matric, course = (key.split('/', 1) + [''])[:2] if '/' in key else (key, '')
+            report_failed.append({
+                'line_no': '',
+                'reg_number': matric,
+                'course_code': course,
+                'error_message': parts[1].strip() if len(parts) > 1 else err_msg,
+            })
+
+        if error_row_models:
+            ResultRow.objects.bulk_create(error_row_models, batch_size=500)
+
+        if timer is not None:
+            timer.stage('persist_summaries')
+
+        summaries_saved = ResultUploadService.save_semester_summaries_from_file(
+            summaries or [],
+            session,
+            semester,
+            upload_batch=batch,
+            student_cache=student_cache,
+        )
+
+        batch.success_count = created_count
+        batch.error_count = len(invalid_rows) + len(submit_errors)
+        batch.save(update_fields=['success_count', 'error_count'])
+
+        if report_failed:
+            ResultUploadService._write_error_report_csv(batch, report_failed)
+
+        if timer is not None:
+            timer.stage('response_build')
+
+        return {
+            'created_count': created_count,
+            'submit_errors': submit_errors,
+            'report_failed': report_failed,
+            'summaries_saved': summaries_saved,
+        }
 
     @staticmethod
     def validate_parsed_rows(

@@ -231,9 +231,10 @@ class HODUploadSubmitView(APIView):
         if not file or not session or not semester:
             return Response({'error': 'File, session, and semester are required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        timer = UploadStageTimer('HOD upload submit')
         try:
             rows_data, validation_report, summaries, file_checksum, _, _ = _parse_and_validate(
-                file, session, semester, department
+                file, session, semester, department, timer=timer
             )
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -247,157 +248,70 @@ class HODUploadSubmitView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        dept_id = department.id if department else None
-
-        with transaction.atomic():
-            batch = ResultUploadBatch.objects.create(
-                filename=file.name,
-                uploaded_by=user,
-                department=department,
-                faculty=department.faculty if department else None,
-                status=ResultUploadBatch.Status.COMPLETED,
-                session=session,
-                semester=semester,
-                success_count=0,
-                error_count=len(invalid_rows),
-                completed_at=timezone.now(),
-            )
-
-            created_results: List[int] = []
-            submit_errors: List[str] = []
-            for row_data in valid_rows:
-                parsed = row_data.get('_parsed') or {}
-                matric_no = row_data['matric_no']
-                course_code = row_data['course_code']
-                score = Decimal(str(row_data['score']))
-                session_val = session.strip()
-                semester_val = semester.strip().upper()
-                grade = (parsed.get('grade') or row_data.get('grade') or '').strip().upper()
-                if grade not in ('A', 'B', 'C', 'D', 'E', 'F'):
-                    grade = ''
-
-                try:
-                    student = ResultUploadService.get_student(matric_no)
-                    course = get_course_for_upload(course_code, department_id=dept_id)
-                    if not course:
-                        submit_errors.append(f'{matric_no}/{course_code}: course not found')
-                        continue
-
-                    if department and not course.department_id:
-                        course.department = department
-                        course.save(update_fields=['department'])
-
-                    result, created = Result.objects.get_or_create(
-                        student=student,
-                        course=course,
-                        session=session_val,
-                        semester=semester_val,
-                        defaults={
-                            'score': score,
-                            'status': 'HOD_REVIEW',
-                            'uploaded_by': user,
-                            'department': department,
-                            'upload_batch': batch,
-                            'checksum': self._result_checksum(student, course, score, session_val, semester_val),
-                            **({'grade': grade} if grade else {}),
-                        },
-                    )
-                    if not created:
-                        if result.is_deleted:
-                            result.is_deleted = False
-                            result.deleted_at = None
-                            result.deleted_by = None
-                        result.score = score
-                        result.status = 'HOD_REVIEW'
-                        result.uploaded_by = user
-                        result.upload_batch = batch
-                        result.checksum = self._result_checksum(student, course, score, session_val, semester_val)
-                        if grade:
-                            result.grade = grade
-                        result.save()
-
-                    created_results.append(result.id)
-                except Exception as exc:
-                    submit_errors.append(f'{matric_no}/{course_code}: {exc}')
-                    continue
-
-            summaries_saved = ResultUploadService.save_semester_summaries_from_file(
-                summaries, session, semester, upload_batch=batch
-            )
-
-            batch.success_count = len(created_results)
-            batch.save(update_fields=['success_count'])
-
-            report_failed: List[Dict] = []
-            for row in invalid_rows:
-                parsed = row.get('_parsed') or {}
-                errs = row.get('errors') or []
-                report_failed.append({
-                    'line_no': row.get('row_number') or '',
-                    'reg_number': row.get('matric_no') or parsed.get('student_id') or '',
-                    'course_code': row.get('course_code') or parsed.get('course_code') or '',
-                    'error_message': '; '.join(errs) if errs else 'Validation failed',
-                })
-                ResultRow.objects.create(
-                    batch=batch,
-                    line_no=int(row.get('row_number') or 0) or 0,
-                    reg_number=row.get('matric_no') or '',
-                    course_code=row.get('course_code') or '',
-                    status=ResultRow.RowStatus.ERROR,
-                    error_message='; '.join(errs)[:500] if errs else 'Validation failed',
+        try:
+            with transaction.atomic():
+                batch = ResultUploadBatch.objects.create(
+                    filename=file.name,
+                    uploaded_by=user,
+                    department=department,
+                    faculty=department.faculty if department else None,
+                    status=ResultUploadBatch.Status.COMPLETED,
                     session=session,
                     semester=semester,
+                    success_count=0,
+                    error_count=len(invalid_rows),
+                    completed_at=timezone.now(),
                 )
-            for err_msg in submit_errors:
-                parts = err_msg.split(':', 1)
-                key = parts[0] if parts else err_msg
-                matric, course = (key.split('/', 1) + [''])[:2] if '/' in key else (key, '')
-                report_failed.append({
-                    'line_no': '',
-                    'reg_number': matric,
-                    'course_code': course,
-                    'error_message': parts[1].strip() if len(parts) > 1 else err_msg,
-                })
-            if report_failed:
-                ResultUploadService._write_error_report_csv(batch, report_failed)
 
-            log_audit(
-                AuditLog.Action.RESULT_UPLOAD_COMPLETED,
-                request=request,
-                user=user,
-                identifier=f'Upload batch {batch.id}',
-                extra={
-                    'batch_id': batch.id,
-                    'filename': file.name,
-                    'session': session,
-                    'semester': semester,
-                    'success_count': len(created_results),
-                    'error_count': len(invalid_rows),
-                    'summaries_saved': summaries_saved,
-                    'file_checksum': file_checksum,
-                },
-            )
+                submit_result = ResultUploadService.submit_hod_validated_rows(
+                    batch=batch,
+                    valid_rows=valid_rows,
+                    invalid_rows=invalid_rows,
+                    uploaded_by=user,
+                    department=department,
+                    session=session,
+                    semester=semester,
+                    summaries=summaries,
+                    timer=timer,
+                )
+
+                log_audit(
+                    AuditLog.Action.RESULT_UPLOAD_COMPLETED,
+                    request=request,
+                    user=user,
+                    identifier=f'Upload batch {batch.id}',
+                    extra={
+                        'batch_id': batch.id,
+                        'filename': file.name,
+                        'session': session,
+                        'semester': semester,
+                        'success_count': submit_result['created_count'],
+                        'error_count': len(invalid_rows),
+                        'summaries_saved': submit_result['summaries_saved'],
+                        'file_checksum': file_checksum,
+                    },
+                )
+        except Exception:
+            logger.exception('HOD upload submit failed')
+            raise
+
+        stages, total_ms = timer.finish()
 
         return Response({
             'message': 'Upload submitted successfully',
             'batch_id': batch.id,
-            'created_count': len(created_results),
-            'success_count': len(created_results),
+            'created_count': submit_result['created_count'],
+            'success_count': submit_result['created_count'],
             'error_count': len(invalid_rows),
-            'summaries_saved': summaries_saved,
-            'submit_errors': submit_errors[:20],
+            'summaries_saved': submit_result['summaries_saved'],
+            'submit_errors': submit_result['submit_errors'][:20],
             'validation_report': _json_safe_report(validation_report),
+            'timing_ms': {name: ms for name, ms in stages},
+            'timing_total_ms': total_ms,
         })
 
     def _result_checksum(self, student, course, score, session, semester) -> str:
-        data = {
-            'student_id': student.student_id,
-            'course_id': course.id,
-            'score': str(score),
-            'session': session,
-            'semester': semester,
-        }
-        return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        return ResultUploadService._result_row_checksum(student, course, score, session, semester)
 
 
 def _parse_course_line(course_line: str, line_num: int) -> tuple:
