@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { CheckCircle2, ChevronRight, Sparkles, PartyPopper } from 'lucide-react'
 import { LButton } from '../learning-ui'
+import { formatContentTypeLabel } from '@/lib/safe-string'
 import type { Lesson } from '@/lib/types'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -52,7 +53,7 @@ export function StepCompleteCelebration({
             <Sparkles className="w-3 h-3 text-brand-600" /> Up next — now unlocked
           </p>
           <p className="text-sm font-semibold text-brand-900">{nextLesson.title}</p>
-          <p className="text-xs text-slate-500 mt-0.5 capitalize">{nextLesson.content_type.replace('_', ' ')}</p>
+          <p className="text-xs text-slate-500 mt-0.5 capitalize">{formatContentTypeLabel(nextLesson.content_type)}</p>
         </div>
       ) : (
         <div className="mt-6 rounded-xl bg-white/80 border border-emerald-100 px-5 py-4 max-w-md mx-auto">

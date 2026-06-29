@@ -426,7 +426,10 @@ class LessonViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == 'media_file':
             return [AllowAny()]
-        if self.action in ('create', 'update', 'partial_update', 'destroy', 'upload_media'):
+        if self.action in (
+            'create', 'update', 'partial_update', 'destroy',
+            'upload_media', 'upload_signature', 'confirm_media',
+        ):
             return [IsAuthenticated(), IsInstructor()]
         return [IsAuthenticated()]
 
@@ -541,6 +544,102 @@ class LessonViewSet(viewsets.ModelViewSet):
         response['Content-Type'] = content_types.get(lesson.content_type, 'application/octet-stream')
         return response
 
+    _LEARNING_UPLOAD_EXTENSIONS = (
+        '.mp4', '.webm', '.mov', '.pdf',
+        '.png', '.jpg', '.jpeg', '.gif', '.webp', '.zip',
+    )
+
+    def _lesson_upload_folder(self, lesson):
+        from django.conf import settings
+        return f"{getattr(settings, 'CLOUDINARY_LEARNING_FOLDER', 'ibbul/learning')}/lessons/{lesson.id}"
+
+    def _assert_can_upload_lesson(self, user, lesson):
+        if user.role == UserRole.EXAMINER and lesson.module.offering.instructor_id != user.id:
+            raise PermissionDenied('Not your offering.')
+        if user.role not in (UserRole.EXAMINER, UserRole.DEPARTMENT_ADMIN, UserRole.HOD,
+                             UserRole.FACULTY_ADMIN, UserRole.SUPER_ADMIN):
+            return False
+        return True
+
+    @action(detail=True, methods=['get'], url_path='upload-signature')
+    def upload_signature(self, request, pk=None):
+        """Return signed Cloudinary upload params — browser uploads directly to Cloudinary."""
+        import os
+
+        from django.conf import settings
+        from common.storage.cloudinary_service import generate_signed_upload_params, is_configured
+
+        lesson = self.get_object()
+        if not self._assert_can_upload_lesson(request.user, lesson):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        filename = (request.query_params.get('filename') or 'file').strip()
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in self._LEARNING_UPLOAD_EXTENSIONS:
+            return Response(
+                {'detail': 'Allowed: MP4, WebM, MOV, PDF, PNG, JPG, GIF, WEBP, ZIP'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not getattr(settings, 'MEDIA_USE_CLOUDINARY', True) or not is_configured():
+            return Response(
+                {'detail': 'Cloudinary not configured.', 'use_proxy_upload': True},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        params = generate_signed_upload_params(
+            folder=self._lesson_upload_folder(lesson),
+            filename=filename,
+        )
+        return Response(params)
+
+    @action(detail=True, methods=['post'], url_path='confirm-media')
+    def confirm_media(self, request, pk=None):
+        """Persist Cloudinary metadata after a direct browser upload."""
+        from common.storage.cloudinary_service import delete_by_url
+
+        lesson = self.get_object()
+        if not self._assert_can_upload_lesson(request.user, lesson):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        secure_url = (request.data.get('secure_url') or '').strip()
+        public_id = (request.data.get('public_id') or '').strip()
+        resource_type = (request.data.get('resource_type') or 'raw').strip()
+        original_filename = (request.data.get('original_filename') or '').strip()
+
+        if not secure_url or not public_id:
+            return Response(
+                {'detail': 'secure_url and public_id are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        expected_prefix = self._lesson_upload_folder(lesson)
+        if not public_id.startswith(expected_prefix):
+            return Response({'detail': 'Upload folder mismatch.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        old_key = (lesson.file_key or '').strip()
+        if old_key.startswith('http'):
+            delete_by_url(old_key)
+
+        lesson.file_key = secure_url
+        lower = original_filename.lower()
+        if lower.endswith('.pdf'):
+            lesson.content_type = 'pdf'
+        elif resource_type == 'video' or lower.endswith(('.mp4', '.webm', '.mov')):
+            lesson.content_type = 'video'
+        lesson.save(update_fields=['file_key', 'content_type', 'updated_at'])
+
+        return Response({
+            'file_key': lesson_media_filename(lesson),
+            'content_type': lesson.content_type,
+            'has_media': True,
+            'public_id': public_id,
+            'resource_type': resource_type,
+            'bytes': request.data.get('bytes'),
+            'format': request.data.get('format'),
+            'original_filename': original_filename or lesson_media_filename(lesson),
+        })
+
     @action(
         detail=True,
         methods=['post'],
@@ -553,22 +652,18 @@ class LessonViewSet(viewsets.ModelViewSet):
         from common.storage.cloudinary_service import is_configured, upload_file
 
         lesson = self.get_object()
-        user = request.user
-        if user.role == UserRole.EXAMINER and lesson.module.offering.instructor_id != user.id:
-            raise PermissionDenied('Not your offering.')
-        if user.role not in (UserRole.EXAMINER, UserRole.DEPARTMENT_ADMIN, UserRole.HOD,
-                             UserRole.FACULTY_ADMIN, UserRole.SUPER_ADMIN):
+        if not self._assert_can_upload_lesson(request.user, lesson):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         upload = request.FILES.get('file')
         if not upload:
             return Response({'detail': 'No file provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        allowed = ('.mp4', '.webm', '.mov', '.pdf', '.MP4', '.WEBM', '.MOV', '.PDF')
-        name = upload.name
-        if not any(name.endswith(ext) for ext in allowed):
+        allowed = self._LEARNING_UPLOAD_EXTENSIONS
+        name = upload.name or 'file'
+        if not any(name.lower().endswith(ext) for ext in allowed):
             return Response(
-                {'detail': 'Allowed: MP4, WebM, MOV, PDF'},
+                {'detail': 'Allowed: MP4, WebM, MOV, PDF, PNG, JPG, GIF, WEBP, ZIP'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

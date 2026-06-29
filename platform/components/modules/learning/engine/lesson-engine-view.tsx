@@ -7,7 +7,7 @@ import { PdfEngineView } from './pdf-engine-view'
 import { ExamQuizEngine } from './exam-quiz-engine'
 import { SecureAssignmentEditor } from './secure-assignment-editor'
 import { ExternalLink } from 'lucide-react'
-import { resolveLessonMediaUrl } from '@/lib/learning-media'
+import { resolveLessonExternalUrl } from '@/lib/learning-media'
 
 export function LessonEngineView({
   lesson,
@@ -38,7 +38,7 @@ export function LessonEngineView({
     case 'pdf':
       return <PdfEngineView lesson={lesson} isInstructor={isInstructor} />
     case 'link': {
-      const url = resolveLessonMediaUrl(lesson)
+      const url = resolveLessonExternalUrl(lesson)
       return url ? (
         <a
           href={url}
@@ -49,7 +49,11 @@ export function LessonEngineView({
           <ExternalLink className="w-5 h-5 text-brand-700" />
           <span className="font-medium text-brand-900 break-all">{url}</span>
         </a>
-      ) : null
+      ) : (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
+          No external link configured for this step.
+        </div>
+      )
     }
     case 'html':
     default:

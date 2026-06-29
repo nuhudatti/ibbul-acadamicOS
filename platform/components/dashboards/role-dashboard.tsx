@@ -10,6 +10,7 @@ import {
 import { useAuthStore } from '@/lib/store'
 import { academicsAPI, coreAPI } from '@/lib/api'
 import { StatCard, StatCardSkeleton } from '@/components/ui/stat-card'
+import { getRoleLabel } from '@/lib/utils'
 import type { UserRole } from '@/lib/types'
 
 interface DashLink {
@@ -199,7 +200,7 @@ export function RoleDashboard() {
       <div className="rounded-2xl gradient-navy p-6 text-white">
         <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">Scope</p>
         <h1 className="text-2xl font-bold">{user.first_name ? `${user.first_name}'s Workspace` : 'Staff Dashboard'}</h1>
-        <p className="text-sm text-slate-300 mt-1">{user.role.replace(/_/g, ' ')} · {scopeLabel}</p>
+        <p className="text-sm text-slate-300 mt-1">{getRoleLabel(user?.role)} · {scopeLabel}</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

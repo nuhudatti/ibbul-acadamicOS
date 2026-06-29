@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { learningAPI } from '@/lib/api'
 import { buildBackendMediaUrl, type LessonMediaUrls } from '@/lib/learning-media'
+import { safeStr, safeTrim } from '@/lib/safe-string'
 
 export function useLessonMediaAccess(lessonId: number) {
   const [media, setMedia] = useState<LessonMediaUrls | null>(null)
@@ -10,6 +11,12 @@ export function useLessonMediaAccess(lessonId: number) {
   const [error, setError] = useState(false)
 
   useEffect(() => {
+    if (!Number.isFinite(lessonId) || lessonId <= 0) {
+      setMedia(null)
+      setLoading(false)
+      return
+    }
+
     let cancelled = false
     setLoading(true)
     setError(false)
@@ -18,26 +25,39 @@ export function useLessonMediaAccess(lessonId: number) {
       .getLessonMediaAccess(lessonId)
       .then((res) => {
         if (cancelled) return
-        const data = res.data
-        if (!data.has_media || !data.view_url || !data.download_url) {
+        const data = res?.data
+        if (!data?.has_media) {
           setMedia(null)
           return
         }
+
+        const viewPath = safeTrim(data.view_url)
+        const downloadPath = safeTrim(data.download_url)
+        const filename = safeStr(data.filename, 'download')
+
+        if (!viewPath || !downloadPath) {
+          setMedia(null)
+          return
+        }
+
         if (data.external) {
           setMedia({
-            viewUrl: data.view_url,
-            downloadUrl: data.download_url,
-            filename: data.filename || 'download',
+            viewUrl: viewPath,
+            downloadUrl: downloadPath,
+            filename,
             external: true,
           })
           return
         }
-        setMedia({
-          viewUrl: buildBackendMediaUrl(data.view_url),
-          downloadUrl: buildBackendMediaUrl(data.download_url),
-          filename: data.filename || 'download',
-          external: false,
-        })
+
+        const viewUrl = buildBackendMediaUrl(viewPath)
+        const downloadUrl = buildBackendMediaUrl(downloadPath)
+        if (!viewUrl || !downloadUrl) {
+          setMedia(null)
+          return
+        }
+
+        setMedia({ viewUrl, downloadUrl, filename, external: false })
       })
       .catch(() => {
         if (!cancelled) {

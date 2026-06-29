@@ -5,13 +5,14 @@ import { Loader2 } from 'lucide-react'
 import type { Lesson } from '@/lib/types'
 import { useLessonMediaAccess } from '@/lib/use-lesson-media'
 import { getVideoEmbedUrl, isYouTubeOrVimeo } from '@/lib/learning-utils'
+import { safeTrim } from '@/lib/safe-string'
 
 export function VideoEngineView({ lesson }: { lesson: Lesson }) {
   const { media, loading } = useLessonMediaAccess(lesson.id)
   const videoRef = useRef<HTMLVideoElement>(null)
   const storageKey = `lms_video_${lesson.id}`
 
-  const url = media?.viewUrl || lesson.external_url?.trim() || ''
+  const url = safeTrim(media?.viewUrl) || safeTrim(lesson.external_url)
 
   useEffect(() => {
     const v = videoRef.current

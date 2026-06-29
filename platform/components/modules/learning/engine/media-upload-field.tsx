@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react'
 import { Upload, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { learningAPI } from '@/lib/api'
+import { uploadLessonMediaFile } from '@/lib/cloudinary-upload'
 import { getLearningApiError } from '@/lib/learning-utils'
 import { LButton } from '../learning-ui'
 
@@ -24,11 +24,11 @@ export function MediaUploadField({
   const handleFile = async (file: File) => {
     setUploading(true)
     try {
-      const resp = await learningAPI.uploadLessonMedia(lessonId, file)
+      const resp = await uploadLessonMediaFile(lessonId, file)
       toast.success('File uploaded')
       onUploaded(resp.data.file_key || file.name, resp.data.content_type)
     } catch (err) {
-      toast.error(getLearningApiError(err, 'Upload failed'))
+      toast.error(err instanceof Error ? err.message : getLearningApiError(err, 'Upload failed'))
     } finally {
       setUploading(false)
     }

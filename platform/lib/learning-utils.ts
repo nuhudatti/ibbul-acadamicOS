@@ -62,7 +62,8 @@ export function buildLearningPath(
   sortedModules.forEach((mod, moduleIndex) => {
     const lessons = [...(mod.lessons ?? [])].sort((a, b) => a.order - b.order)
     lessons.forEach((lesson) => {
-      const meta = TYPE_META[lesson.content_type] ?? TYPE_META.html
+      const contentType = (lesson.content_type ?? 'html') as ContentType
+      const meta = TYPE_META[contentType] ?? TYPE_META.html
       raw.push({
         id: `lesson-${lesson.id}`,
         index: raw.length,
@@ -146,13 +147,17 @@ export function offeringProgress(modules: Module[] | undefined) {
   return { total, completed, percent: total ? Math.round((completed / total) * 100) : 0 }
 }
 
-export function isYouTubeOrVimeo(url: string): boolean {
-  return /youtube\.com|youtu\.be|vimeo\.com/i.test(url)
+export function isYouTubeOrVimeo(url: string | null | undefined): boolean {
+  const value = (url ?? '').trim()
+  if (!value) return false
+  return /youtube\.com|youtu\.be|vimeo\.com/i.test(value)
 }
 
-export function getVideoEmbedUrl(url: string): string | null {
+export function getVideoEmbedUrl(url: string | null | undefined): string | null {
+  const value = (url ?? '').trim()
+  if (!value) return null
   try {
-    const u = new URL(url)
+    const u = new URL(value)
     if (u.hostname.includes('youtube.com') && u.searchParams.get('v')) {
       return `https://www.youtube.com/embed/${u.searchParams.get('v')}`
     }

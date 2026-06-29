@@ -5,15 +5,19 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
 import { isTokenExpired } from './utils'
 import { resolveApiBase } from './api-config'
+import { safeStr } from './safe-string'
 
 function getApiPrefix(): string {
   return resolveApiBase().apiPrefix
 }
 
 /** Ensure path has leading + trailing slash for Django API routes. */
-function apiPath(path: string): string {
-  const withLeading = path.startsWith('/') ? path : `/${path}`
-  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`
+function apiPath(path: string | null | undefined): string {
+  const raw = safeStr(path, '/')
+  const [pathname, suffix = ''] = raw.split(/([?#].*)/)
+  const withLeading = pathname.startsWith('/') ? pathname : `/${pathname}`
+  const normalized = withLeading.endsWith('/') ? withLeading : `${withLeading}/`
+  return `${normalized}${suffix}`
 }
 
 /** Multipart POST through the same /api/backend client as login. */
@@ -676,14 +680,37 @@ export const learningAPI = {
   gradeSubmission: (assignmentId: number, data: { student_id: number; score: number; feedback?: string }) =>
     api.post(`/learning/assignments/${assignmentId}/grade/`, data),
 
-  // Learning Engine
-  uploadLessonMedia: (lessonId: number, file: File) => {
+  // Learning Engine — proxy fallback when Cloudinary is unavailable (local dev)
+  uploadLessonMediaProxy: (lessonId: number, file: File) => {
     const fd = new FormData()
     fd.append('file', file)
     const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(file.name)
     const timeout = isVideo ? 600_000 : 180_000
     return multipartPost(`/learning/lessons/${lessonId}/upload-media/`, fd, timeout)
   },
+
+  getLessonUploadSignature: (lessonId: number, filename: string) =>
+    api.get<{
+      cloud_name: string
+      api_key: string
+      timestamp: number
+      signature: string
+      folder: string
+      resource_type: string
+      upload_url?: string
+    }>(`/learning/lessons/${lessonId}/upload-signature/`, { params: { filename } }),
+
+  confirmLessonMedia: (
+    lessonId: number,
+    data: {
+      secure_url: string
+      public_id: string
+      resource_type: string
+      bytes?: number
+      format?: string
+      original_filename?: string
+    },
+  ) => api.post(`/learning/lessons/${lessonId}/confirm-media/`, data),
 
   getLessonMediaAccess: (lessonId: number) =>
     api.get<{

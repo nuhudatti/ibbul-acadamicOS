@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { learningAPI } from '@/lib/api'
+import { uploadLessonMediaFile } from '@/lib/cloudinary-upload'
 import { getLearningApiError } from '@/lib/learning-utils'
 import { MediaFilePicker } from './engine/media-dropzone'
 import { LCard, LButton } from './learning-ui'
@@ -102,7 +103,7 @@ export function StepCreator({
       const lessonId = resp.data?.id as number | undefined
 
       if (lessonId && mediaFile && ['video', 'pdf'].includes(stepType)) {
-        await learningAPI.uploadLessonMedia(lessonId, mediaFile)
+        await uploadLessonMediaFile(lessonId, mediaFile)
       }
 
       if (stepType === 'quiz' && lessonId) {

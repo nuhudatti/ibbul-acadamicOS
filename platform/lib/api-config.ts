@@ -6,12 +6,23 @@
  *
  * Local dev: NEXT_PUBLIC_API_URL or http://localhost:8000
  */
+import { safeStr } from './safe-string'
+
 function stripTrailingSlash(url: string): string {
-  return url.replace(/\/$/, '')
+  const value = safeStr(url)
+  if (!value) return ''
+  return value.replace(/\/$/, '')
 }
 
 function isLocalHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1'
+}
+
+function isProductionHost(): boolean {
+  if (typeof window !== 'undefined') {
+    return !isLocalHostname(window.location.hostname)
+  }
+  return Boolean(process.env.VERCEL || process.env.BACKEND_URL)
 }
 
 export function resolveApiBase(): { origin: string; apiPrefix: string } {
@@ -26,11 +37,16 @@ export function resolveApiBase(): { origin: string; apiPrefix: string } {
     return { origin: local, apiPrefix: `${local}/api` }
   }
 
+  // SSR must match the browser in production to avoid hydration mismatches.
+  if (isProductionHost()) {
+    return { origin: '', apiPrefix: '/api/backend' }
+  }
+
   const backend = envUrl || 'http://localhost:8000'
   return { origin: backend, apiPrefix: `${backend}/api` }
 }
 
 /** Server-only: Django URL for the Next.js /api/backend proxy route. */
 export function getBackendUrlForProxy(): string {
-  return stripTrailingSlash(process.env.BACKEND_URL || 'http://localhost:8000')
+  return stripTrailingSlash(process.env.BACKEND_URL || 'http://localhost:8000') || 'http://localhost:8000'
 }

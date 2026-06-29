@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback } from 'react'
 import { FileVideo, FileText, Upload, Loader2, X, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { learningAPI } from '@/lib/api'
+import { uploadLessonMediaFile } from '@/lib/cloudinary-upload'
 import { getLearningApiError } from '@/lib/learning-utils'
 import { cn } from '@/lib/utils'
 
@@ -172,7 +172,7 @@ export function MediaDropzone({
   const upload = async (file: File) => {
     setUploading(true)
     try {
-      await learningAPI.uploadLessonMedia(lessonId, file)
+      await uploadLessonMediaFile(lessonId, file)
       setUploadedName(file.name)
       toast.success(`${kind === 'pdf' ? 'PDF' : 'Video'} uploaded successfully`)
       onUploaded?.()

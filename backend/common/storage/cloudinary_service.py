@@ -162,6 +162,31 @@ def public_id_from_url(url: str) -> Tuple[Optional[str], str]:
     return public_id, resource_type
 
 
+def generate_signed_upload_params(*, folder: str, filename: str) -> dict:
+    """Return browser-safe signed upload params (never includes API secret)."""
+    import time
+
+    import cloudinary.utils
+
+    _configure()
+    resource_type = _resource_type(filename)
+    timestamp = int(time.time())
+    params = {
+        'timestamp': timestamp,
+        'folder': folder.strip('/'),
+    }
+    signature = cloudinary.utils.api_sign_request(params, settings.CLOUDINARY_API_SECRET)
+    return {
+        'cloud_name': settings.CLOUDINARY_CLOUD_NAME,
+        'api_key': settings.CLOUDINARY_API_KEY,
+        'timestamp': timestamp,
+        'signature': signature,
+        'folder': params['folder'],
+        'resource_type': resource_type,
+        'upload_url': f'https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/{resource_type}/upload',
+    }
+
+
 def cloudinary_delivery_url(
     stored_url: str,
     *,

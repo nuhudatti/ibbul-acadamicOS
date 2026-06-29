@@ -13,6 +13,7 @@ import { OversightCard, OversightSkeleton, StatusPill } from '@/components/resul
 import { BatchStudentResults } from '@/components/results-oversight/batch-student-results'
 import { EmptyState } from '@/components/ui/empty-state'
 import { cn, formatDateTime, getGradeColor } from '@/lib/utils'
+import { safeReplace } from '@/lib/safe-string'
 import {
   loadFacultyOverview,
   loadDepartmentOverview,
@@ -422,7 +423,7 @@ export default function ResultsOversightContent() {
                   {auditRows.map((a) => (
                     <div key={a.id} className="px-6 py-3 flex items-center justify-between gap-4 text-sm">
                       <div>
-                        <div className="font-medium text-slate-800">{a.action.replace(/_/g, ' ')}</div>
+                        <div className="font-medium text-slate-800">{safeReplace(a.action, /_/g, ' ', 'Action')}</div>
                         <div className="text-xs text-slate-400 mt-0.5">{a.identifier}</div>
                       </div>
                       <div className="text-right flex-shrink-0">

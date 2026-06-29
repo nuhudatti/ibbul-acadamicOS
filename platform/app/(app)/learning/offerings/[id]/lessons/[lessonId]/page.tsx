@@ -11,6 +11,7 @@ import { buildLearningPath, getNextLesson, getStepByLessonId } from '@/lib/learn
 import { LessonEngineView } from '@/components/modules/learning/engine/lesson-engine-view'
 import { StepCompleteCelebration } from '@/components/modules/learning/engine/step-complete-celebration'
 import { LBreadcrumb, LCard, LButton, LBadge, LSkeleton } from '@/components/modules/learning/learning-ui'
+import { formatContentTypeLabel } from '@/lib/safe-string'
 import type { LMSOfferingDetail, Lesson } from '@/lib/types'
 
 export default function LessonPlayerPage() {
@@ -135,7 +136,7 @@ export default function LessonPlayerPage() {
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <LBadge variant="info" className="mb-2 capitalize">{lesson.content_type.replace('_', ' ')}</LBadge>
+          <LBadge variant="info" className="mb-2 capitalize">{formatContentTypeLabel(lesson.content_type)}</LBadge>
           <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">{lesson.title}</h1>
         </div>
         {completed && (
