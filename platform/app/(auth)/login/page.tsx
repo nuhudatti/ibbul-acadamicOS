@@ -5,31 +5,13 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
-import { authAPI, tokenStorage, coreAPI } from '@/lib/api'
+import { authAPI, tokenStorage, coreAPI, normalizeResponseData } from '@/lib/api'
 import { useAuthStore } from '@/lib/store'
 import { cn, isTokenExpired } from '@/lib/utils'
 import { extractApiError, extractFormError } from '@/lib/api-errors'
 import type { User } from '@/lib/types'
 import axios from 'axios'
 import { AuthFrame } from '@/components/auth/auth-frame'
-
-function coerceResponseBody(raw: unknown): Record<string, unknown> | null {
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw) as unknown
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>
-      }
-      return null
-    } catch {
-      return null
-    }
-  }
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return raw as Record<string, unknown>
-  }
-  return null
-}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -82,16 +64,18 @@ export default function LoginPage() {
 
       console.log('LOGIN RAW RESPONSE', response.status, response.data)
       console.log('typeof response.data', typeof response.data)
-      console.log('keys', Object.keys((response.data as object) || {}))
 
-      const data = coerceResponseBody(response.data)
-      const user = data?.user as User | undefined
-      const tokens = data?.tokens as { access?: string; refresh?: string } | undefined
-      const access = tokens?.access ?? (data?.access as string | undefined)
-      const refresh = tokens?.refresh ?? (data?.refresh as string | undefined)
+      let data = normalizeResponseData(response.data) as Record<string, unknown>
+      console.log('typeof parsed data', typeof data)
+      console.log('keys', Object.keys(data || {}))
+
+      const user = data.user as User | undefined
+      const tokens = data.tokens as { access?: string; refresh?: string } | undefined
+      const access = tokens?.access ?? (data.access as string | undefined)
+      const refresh = tokens?.refresh ?? (data.refresh as string | undefined)
 
       if (!user || typeof access !== 'string' || !access || typeof refresh !== 'string' || !refresh) {
-        console.error('LOGIN FAILURE', response.data)
+        console.error('LOGIN FAILURE', data)
         console.trace()
         setErrors({ general: 'Sign-in response was incomplete. Please try again or contact ICT support.' })
         return
@@ -107,7 +91,7 @@ export default function LoginPage() {
       window.location.assign(target)
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        const data = err.response?.data
+        const data = normalizeResponseData(err.response?.data)
         setErrors({
           general: extractFormError(
             data,

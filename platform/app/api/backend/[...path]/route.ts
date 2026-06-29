@@ -53,10 +53,29 @@ async function proxyRequest(req: NextRequest, pathSegments: string[]): Promise<N
       cache: 'no-store',
     })
 
+    const contentType = upstream.headers.get('content-type') || ''
     const responseHeaders = new Headers()
     for (const name of FORWARD_RESPONSE_HEADERS) {
+      if (name === 'content-length') continue
       const value = upstream.headers.get(name)
       if (value) responseHeaders.set(name, value)
+    }
+
+    // Ensure JSON responses are parsed objects in the browser (not raw strings).
+    if (contentType.includes('application/json')) {
+      const text = await upstream.text()
+      try {
+        return NextResponse.json(JSON.parse(text) as unknown, {
+          status: upstream.status,
+          headers: responseHeaders,
+        })
+      } catch {
+        if (contentType) responseHeaders.set('content-type', contentType)
+        return new NextResponse(text, {
+          status: upstream.status,
+          headers: responseHeaders,
+        })
+      }
     }
 
     return new NextResponse(upstream.body, {

@@ -83,6 +83,26 @@ export const tokenStorage = {
   },
 }
 
+/** Axios may leave JSON bodies as strings when the proxy omits Content-Type. */
+export function normalizeResponseData<T = unknown>(data: T): T {
+  let current: unknown = data
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (typeof current !== 'string') break
+    const trimmed = current.trim()
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) break
+    try {
+      current = JSON.parse(trimmed) as unknown
+    } catch {
+      break
+    }
+  }
+  return current as T
+}
+
+function shouldNormalizeResponseType(responseType?: string): boolean {
+  return responseType !== 'blob' && responseType !== 'arraybuffer' && responseType !== 'stream'
+}
+
 // ─── Axios instance ────────────────────────────────────────────────────────────
 
 const api: AxiosInstance = axios.create({
@@ -124,8 +144,9 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
       const response = await axios.post(`${getApiPrefix()}${apiPath('/accounts/token/refresh')}`, {
         refresh,
       })
-      access = response.data.access
-      const newRefresh = response.data.refresh ?? refresh
+      const refreshData = normalizeResponseData(response.data) as { access?: string; refresh?: string }
+      access = refreshData.access ?? null
+      const newRefresh = refreshData.refresh ?? refresh
       if (access) tokenStorage.setTokens(access, newRefresh)
     } catch (refreshErr) {
       tokenStorage.clearTokens()
@@ -139,11 +160,20 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   return config
 })
 
-// ─── Response interceptor — handle 401 ────────────────────────────────────────
+// ─── Response interceptor — parse string JSON + handle 401 ───────────────────
 
 api.interceptors.response.use(
-  response => response,
+  (response) => {
+    if (shouldNormalizeResponseType(response.config.responseType)) {
+      response.data = normalizeResponseData(response.data)
+    }
+    return response
+  },
   async error => {
+    if (error.response?.data && shouldNormalizeResponseType(error.config?.responseType)) {
+      error.response.data = normalizeResponseData(error.response.data)
+    }
+
     const original = error.config
     if (
       error.response?.status === 401
@@ -156,8 +186,10 @@ api.interceptors.response.use(
       if (refresh && !isTokenExpired(refresh)) {
         try {
           const response = await axios.post(`${getApiPrefix()}${apiPath('/accounts/token/refresh')}`, { refresh })
-          const newAccess = response.data.access
-          const newRefresh = response.data.refresh ?? refresh
+          const refreshData = normalizeResponseData(response.data) as { access?: string; refresh?: string }
+          const newAccess = refreshData.access
+          const newRefresh = refreshData.refresh ?? refresh
+          if (!newAccess) throw new Error('Refresh response missing access token')
           tokenStorage.setTokens(newAccess, newRefresh)
           original.headers.Authorization = `Bearer ${newAccess}`
           return api(original)
