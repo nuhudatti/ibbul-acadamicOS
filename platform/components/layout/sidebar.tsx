@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { cn, getRoleLabel } from '@/lib/utils'
 import { safeDisplayText } from '@/lib/api-errors'
+import { safeStr } from '@/lib/safe-string'
 import { useAuthStore, useUIStore } from '@/lib/store'
 import { usePlatformBrand } from '@/hooks/use-platform-brand'
 import { PlatformLogo } from '@/components/branding/platform-logo'
@@ -314,7 +315,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 {safeDisplayText(user.first_name) || safeDisplayText(user.full_name, 'User')}
               </div>
               <div className="text-[10px] text-white/40 truncate">
-                {safeDisplayText(user.department_name) || getRoleLabel(user.role).replace(/^\w/, (c) => c.toUpperCase())}
+                {safeDisplayText(user.department_name) ||
+                  safeStr(getRoleLabel(user.role), 'User').replace(/^\w/, (c) => c.toUpperCase())}
               </div>
             </div>
           </div>

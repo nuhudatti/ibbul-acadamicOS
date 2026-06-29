@@ -81,7 +81,7 @@ export function getRoleLabel(role: UserRole | string | null | undefined): string
     STUDENT: 'Student',
   }
   if (role == null) return 'User'
-  if (typeof role === 'string' && role in labels) {
+  if (typeof role === 'string' && Object.hasOwn(labels, role)) {
     return labels[role as UserRole]
   }
   if (typeof role === 'string') return role.replace(/_/g, ' ')
