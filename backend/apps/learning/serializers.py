@@ -67,6 +67,7 @@ class LessonSerializer(serializers.ModelSerializer):
     quiz = QuizSerializer(read_only=True)
     assignment = AssignmentSerializer(read_only=True)
     progress = serializers.SerializerMethodField()
+    file_key = serializers.SerializerMethodField()
 
     class Meta:
         model = Lesson
@@ -74,6 +75,14 @@ class LessonSerializer(serializers.ModelSerializer):
                   'external_url', 'duration_minutes', 'order', 'is_published',
                   'is_preview', 'quiz', 'assignment', 'progress',
                   'created_at', 'updated_at']
+
+    def get_file_key(self, obj):
+        key = (obj.file_key or '').strip()
+        if not key:
+            return ''
+        if key.startswith('http://') or key.startswith('https://'):
+            return key.rsplit('/', 1)[-1].split('?')[0]
+        return key
 
     def get_progress(self, obj):
         request = self.context.get('request')

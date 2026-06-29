@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ChevronLeft, ChevronRight, FileText } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileText, Loader2 } from 'lucide-react'
 import type { Lesson } from '@/lib/types'
-import { resolveLessonMediaUrl } from '@/lib/learning-media'
+import { useLessonMediaAccess } from '@/lib/use-lesson-media'
 import { useLiveSync } from './use-live-sync'
 import { MediaDownloadBar } from './media-download-bar'
 import { LButton } from '../learning-ui'
@@ -15,7 +15,7 @@ export function PdfEngineView({
   lesson: Lesson
   isInstructor: boolean
 }) {
-  const url = resolveLessonMediaUrl(lesson)
+  const { media, loading } = useLessonMediaAccess(lesson.id)
   const [page, setPage] = useState(1)
   const [embedError, setEmbedError] = useState(false)
   const { followLecturer, setFollowLecturer, live, isInstructor: inst, broadcastScroll } = useLiveSync(
@@ -25,13 +25,22 @@ export function PdfEngineView({
 
   useEffect(() => {
     setEmbedError(false)
-  }, [url])
+  }, [media?.viewUrl])
 
   useEffect(() => {
     if (inst) broadcastScroll(0, page)
   }, [page, inst, broadcastScroll])
 
-  if (!url) {
+  if (loading) {
+    return (
+      <div className="h-96 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col items-center justify-center text-sm text-slate-500 gap-2">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
+        <p>Loading PDF…</p>
+      </div>
+    )
+  }
+
+  if (!media?.viewUrl) {
     return (
       <div className="h-96 rounded-2xl bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center text-sm text-slate-500 gap-2">
         <FileText className="w-10 h-10 text-slate-300" />
@@ -42,8 +51,8 @@ export function PdfEngineView({
   }
 
   const displayPage = !inst && followLecturer && live.active ? live.page : page
-  const filename = lesson.file_key?.split('/').pop() || `${lesson.title}.pdf`
-  const viewerUrl = `${url}#page=${displayPage}&view=FitH&toolbar=1`
+  const filename = media.filename
+  const viewerUrl = `${media.viewUrl}#page=${displayPage}&view=FitH&toolbar=1`
 
   return (
     <div className="space-y-4">
@@ -67,7 +76,7 @@ export function PdfEngineView({
         </div>
       </div>
 
-      <MediaDownloadBar url={url} filename={filename} label="PDF" />
+      <MediaDownloadBar viewUrl={media.viewUrl} downloadUrl={media.downloadUrl} filename={filename} label="PDF" />
 
       <div className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-inner min-h-[480px]">
         {!embedError ? (
@@ -85,7 +94,7 @@ export function PdfEngineView({
             <p className="text-xs text-slate-500 max-w-sm">
               Use download or open in a new tab — your PDF is ready and saved on the server.
             </p>
-            <MediaDownloadBar url={url} filename={filename} label="PDF" />
+            <MediaDownloadBar viewUrl={media.viewUrl} downloadUrl={media.downloadUrl} filename={filename} label="PDF" />
           </div>
         )}
       </div>

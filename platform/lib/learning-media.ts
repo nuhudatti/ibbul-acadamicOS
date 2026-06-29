@@ -1,28 +1,31 @@
-import type { Lesson } from '@/lib/types'
 import { resolveApiBase } from '@/lib/api-config'
 
-/** Resolve uploaded file_key or external URL for lesson media */
-export function resolveLessonMediaUrl(lesson: Pick<Lesson, 'file_key' | 'external_url'>): string {
-  const key = lesson.file_key?.trim()
-  const ext = lesson.external_url?.trim()
-  if (key) {
-    if (key.startsWith('http://') || key.startsWith('https://')) {
-      return cloudinaryStreamUrl(key)
-    }
-    const { origin: API_BASE } = resolveApiBase()
-    const path = key.startsWith('/') ? key.slice(1) : key
-    if (path.startsWith('media/')) return `${API_BASE}/${path}`
-    return `${API_BASE}/media/${path}`
-  }
-  return ext || ''
+export interface LessonMediaUrls {
+  viewUrl: string
+  downloadUrl: string
+  filename: string
+  external: boolean
 }
 
-/** Prefer Cloudinary streaming delivery (f_auto) over raw file URL when possible. */
-function cloudinaryStreamUrl(url: string): string {
-  if (!url.includes('res.cloudinary.com') || url.includes('/upload/f_auto')) {
-    return url
-  }
-  return url.replace('/upload/', '/upload/f_auto,q_auto/')
+/** Build a full browser URL for a backend-relative media path. */
+export function buildBackendMediaUrl(relativePath: string): string {
+  const { apiPrefix } = resolveApiBase()
+  const path = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath
+  return `${apiPrefix}/${path}`
+}
+
+/** @deprecated Use useLessonMediaAccess hook — kept for external_url-only lessons. */
+export function resolveLessonMediaUrl(lesson: {
+  id: number
+  file_key?: string
+  external_url?: string
+}): string {
+  const ext = lesson.external_url?.trim()
+  if (ext && !lesson.file_key?.trim()) return ext
+  if (!lesson.file_key?.trim()) return ext || ''
+  return buildBackendMediaUrl(
+    `learning/lessons/${lesson.id}/media/file/?disposition=inline`,
+  )
 }
 
 export function formatDuration(seconds: number): string {

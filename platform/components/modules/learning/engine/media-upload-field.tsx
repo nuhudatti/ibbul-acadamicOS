@@ -16,7 +16,7 @@ export function MediaUploadField({
   lessonId: number
   accept: string
   label: string
-  onUploaded: (url: string, contentType: string) => void
+  onUploaded: (fileKey: string, contentType: string) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
@@ -26,7 +26,7 @@ export function MediaUploadField({
     try {
       const resp = await learningAPI.uploadLessonMedia(lessonId, file)
       toast.success('File uploaded')
-      onUploaded(resp.data.url, resp.data.content_type)
+      onUploaded(resp.data.file_key || file.name, resp.data.content_type)
     } catch (err) {
       toast.error(getLearningApiError(err, 'Upload failed'))
     } finally {

@@ -17,6 +17,15 @@ const FORWARD_HEADERS = [
   'cache-control',
 ]
 
+const FORWARD_RESPONSE_HEADERS = [
+  'content-type',
+  'content-disposition',
+  'content-length',
+  'cache-control',
+  'location',
+  'accept-ranges',
+]
+
 async function proxyRequest(req: NextRequest, pathSegments: string[]): Promise<NextResponse> {
   const backend = getBackendUrlForProxy()
   const path = pathSegments.join('/')
@@ -45,8 +54,10 @@ async function proxyRequest(req: NextRequest, pathSegments: string[]): Promise<N
     })
 
     const responseHeaders = new Headers()
-    const contentType = upstream.headers.get('content-type')
-    if (contentType) responseHeaders.set('content-type', contentType)
+    for (const name of FORWARD_RESPONSE_HEADERS) {
+      const value = upstream.headers.get(name)
+      if (value) responseHeaders.set(name, value)
+    }
 
     return new NextResponse(upstream.body, {
       status: upstream.status,

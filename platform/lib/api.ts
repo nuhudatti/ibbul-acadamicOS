@@ -1,10 +1,10 @@
 /**
  * Axios API client with automatic JWT injection and token refresh.
- * All calls go to the Django backend at NEXT_PUBLIC_API_URL.
+ * Browser requests use the same-origin /api/backend proxy (production).
  */
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
 import { isTokenExpired } from './utils'
-import { resolveApiBase, resolveMultipartApiPrefix } from './api-config'
+import { resolveApiBase } from './api-config'
 
 function getApiPrefix(): string {
   return resolveApiBase().apiPrefix
@@ -16,11 +16,9 @@ function apiPath(path: string): string {
   return withLeading.endsWith('/') ? withLeading : `${withLeading}/`
 }
 
-/** Multipart POST — direct to Django in production (avoids Vercel 4.5MB proxy limit). */
+/** Multipart POST through the same /api/backend client as login. */
 function multipartPost(path: string, formData: FormData, timeout = 120_000) {
-  const token = tokenStorage.getAccess()
-  return axios.post(`${resolveMultipartApiPrefix()}${apiPath(path)}`, formData, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  return api.post(path, formData, {
     timeout,
     maxContentLength: Infinity,
     maxBodyLength: Infinity,
@@ -72,6 +70,9 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
   if (config.url && !config.url.startsWith('http')) {
     config.url = apiPath(config.url)
+  }
+  if (config.data instanceof FormData && config.headers) {
+    delete config.headers['Content-Type']
   }
   return config
 })
@@ -235,9 +236,7 @@ export const coreAPI = {
     const form = new FormData()
     form.append('file', file)
     form.append('type', type)
-    return api.post('/core/platform-branding/upload/', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    return api.post('/core/platform-branding/upload/', form, { timeout: 120_000 })
   },
 
   /** Enterprise setup wizard (first run only) */
@@ -441,10 +440,10 @@ export const invitationAPI = {
     api.post<{ message: string; invitation: StaffInvitationRecord }>(`/accounts/invitations/${id}/revoke/`),
 
   verify: (token: string) =>
-    axios.get(`${getApiPrefix()}${apiPath('/accounts/invitations/verify')}`, { params: { token } }),
+    api.get('/accounts/invitations/verify/', { params: { token } }),
 
   accept: (data: { token: string; password: string; password_confirm: string }) =>
-    axios.post(`${getApiPrefix()}${apiPath('/accounts/invitations/accept')}`, data),
+    api.post('/accounts/invitations/accept/', data),
 }
 
 export const governanceStaffAPI = {
@@ -685,6 +684,15 @@ export const learningAPI = {
     const timeout = isVideo ? 600_000 : 180_000
     return multipartPost(`/learning/lessons/${lessonId}/upload-media/`, fd, timeout)
   },
+
+  getLessonMediaAccess: (lessonId: number) =>
+    api.get<{
+      has_media: boolean
+      view_url?: string
+      download_url?: string
+      filename?: string
+      external?: boolean
+    }>(`/learning/lessons/${lessonId}/media/access/`),
 
   getLivePosition: (lessonId: number) =>
     api.get(`/learning/lessons/${lessonId}/live-position/`),

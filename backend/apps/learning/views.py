@@ -12,7 +12,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from datetime import timedelta
 
@@ -29,6 +29,12 @@ from .serializers import (
     QuizSubmitSerializer, AssignmentSerializer, SubmissionSerializer,
     GradeSubmissionSerializer, EnrollmentSerializer, LessonProgressSerializer,
     QuizQuestionSerializer,
+)
+from .media_access import (
+    can_access_lesson_media,
+    lesson_media_filename,
+    make_media_token,
+    verify_media_token,
 )
 from .permissions import IsInstructor, IsOfferingInstructor
 
@@ -418,6 +424,8 @@ class LessonViewSet(viewsets.ModelViewSet):
         return qs.order_by('order')
 
     def get_permissions(self):
+        if self.action == 'media_file':
+            return [AllowAny()]
         if self.action in ('create', 'update', 'partial_update', 'destroy', 'upload_media'):
             return [IsAuthenticated(), IsInstructor()]
         return [IsAuthenticated()]
@@ -443,6 +451,95 @@ class LessonViewSet(viewsets.ModelViewSet):
         )
         progress.mark_complete()
         return Response({'completed': True, 'completed_at': progress.completed_at})
+
+    @action(detail=True, methods=['get'], url_path='media/access')
+    def media_access(self, request, pk=None):
+        """Return proxy-safe media URLs (with short-lived token) for preview/download."""
+        lesson = self.get_object()
+        if not can_access_lesson_media(lesson, request.user):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        ext = (lesson.external_url or '').strip()
+        if ext and not (lesson.file_key or '').strip():
+            filename = lesson_media_filename(lesson)
+            return Response({
+                'has_media': True,
+                'view_url': ext,
+                'download_url': ext,
+                'filename': filename,
+                'external': True,
+            })
+
+        if not (lesson.file_key or '').strip():
+            return Response({'has_media': False})
+
+        token = make_media_token(lesson.id, request.user.id)
+        path = f'learning/lessons/{lesson.id}/media/file/'
+        qs = f'?token={token}'
+        filename = lesson_media_filename(lesson)
+        return Response({
+            'has_media': True,
+            'view_url': f'{path}{qs}&disposition=inline',
+            'download_url': f'{path}{qs}&disposition=attachment',
+            'filename': filename,
+            'external': False,
+        })
+
+    @action(detail=True, methods=['get'], url_path='media/file')
+    def media_file(self, request, pk=None):
+        """Stream lesson media via redirect (Cloudinary) or FileResponse (local dev)."""
+        import os
+
+        from django.conf import settings
+        from django.http import FileResponse, HttpResponseRedirect
+
+        from apps.accounts.models import User
+        from common.storage.cloudinary_service import cloudinary_delivery_url
+
+        lesson = Lesson.objects.select_related('module__offering').filter(pk=pk).first()
+        if not lesson:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        user = request.user if request.user.is_authenticated else None
+        token = request.query_params.get('token')
+        if token:
+            uid = verify_media_token(token, int(pk))
+            if uid is None:
+                return Response(
+                    {'detail': 'Invalid or expired media link.'},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+            user = User.objects.filter(pk=uid).first()
+
+        if not user:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+        if not can_access_lesson_media(lesson, user):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        key = (lesson.file_key or '').strip()
+        if not key:
+            return Response({'detail': 'No media attached.'}, status=status.HTTP_404_NOT_FOUND)
+
+        disposition = request.query_params.get('disposition', 'inline')
+        filename = lesson_media_filename(lesson)
+
+        if key.startswith('http://') or key.startswith('https://'):
+            url = cloudinary_delivery_url(key, disposition=disposition, filename=filename)
+            return HttpResponseRedirect(url)
+
+        abs_path = os.path.join(settings.MEDIA_ROOT, key)
+        if not os.path.isfile(abs_path):
+            return Response({'detail': 'Media file not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        content_types = {
+            'pdf': 'application/pdf',
+            'video': 'video/mp4',
+        }
+        response = FileResponse(open(abs_path, 'rb'))
+        disp = 'attachment' if disposition == 'attachment' else 'inline'
+        response['Content-Disposition'] = f'{disp}; filename="{filename}"'
+        response['Content-Type'] = content_types.get(lesson.content_type, 'application/octet-stream')
+        return response
 
     @action(
         detail=True,
@@ -490,7 +587,6 @@ class LessonViewSet(viewsets.ModelViewSet):
             except Exception as exc:
                 return Response({'detail': str(exc)[:300]}, status=status.HTTP_502_BAD_GATEWAY)
             lesson.file_key = url
-            media_url = url
         else:
             import os
             rel_dir = f'learning/lessons/{lesson.id}'
@@ -502,7 +598,6 @@ class LessonViewSet(viewsets.ModelViewSet):
                 for chunk in upload.chunks():
                     dest.write(chunk)
             lesson.file_key = rel_path
-            media_url = request.build_absolute_uri(settings.MEDIA_URL + rel_path)
 
         if name.lower().endswith('.pdf'):
             lesson.content_type = 'pdf'
@@ -510,7 +605,11 @@ class LessonViewSet(viewsets.ModelViewSet):
             lesson.content_type = 'video'
         lesson.save(update_fields=['file_key', 'content_type', 'updated_at'])
 
-        return Response({'file_key': lesson.file_key, 'url': media_url, 'content_type': lesson.content_type})
+        return Response({
+            'file_key': lesson_media_filename(lesson),
+            'content_type': lesson.content_type,
+            'has_media': True,
+        })
 
 
 # ─── Quiz ViewSet ─────────────────────────────────────────────────────────────

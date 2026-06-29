@@ -162,6 +162,32 @@ def public_id_from_url(url: str) -> Tuple[Optional[str], str]:
     return public_id, resource_type
 
 
+def cloudinary_delivery_url(
+    stored_url: str,
+    *,
+    disposition: str = 'inline',
+    filename: str = '',
+) -> str:
+    """Build a browser-ready Cloudinary URL (stream, inline, or attachment)."""
+    if not stored_url or 'res.cloudinary.com' not in stored_url:
+        return stored_url
+    url = stored_url.split('?')[0]
+    if '/upload/' not in url:
+        return stored_url
+
+    transforms: list[str] = []
+    if disposition == 'attachment' and filename:
+        safe = re.sub(r'[^\w.\-]', '_', filename)[:120]
+        transforms.append(f'fl_attachment:{safe}')
+    elif '/video/upload/' in url or url.lower().endswith(('.mp4', '.webm', '.mov')):
+        if 'f_auto' not in url:
+            transforms.extend(['f_auto', 'q_auto'])
+
+    if transforms:
+        url = url.replace('/upload/', f'/upload/{",".join(transforms)}/', 1)
+    return url
+
+
 def resolve_media_url(stored: str) -> str:
     """Return browser-ready URL for a stored file_key or URL."""
     val = (stored or '').strip()

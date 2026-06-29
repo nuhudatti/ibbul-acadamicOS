@@ -1,14 +1,17 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { Loader2 } from 'lucide-react'
 import type { Lesson } from '@/lib/types'
-import { resolveLessonMediaUrl } from '@/lib/learning-media'
+import { useLessonMediaAccess } from '@/lib/use-lesson-media'
 import { getVideoEmbedUrl, isYouTubeOrVimeo } from '@/lib/learning-utils'
 
 export function VideoEngineView({ lesson }: { lesson: Lesson }) {
-  const url = resolveLessonMediaUrl(lesson)
+  const { media, loading } = useLessonMediaAccess(lesson.id)
   const videoRef = useRef<HTMLVideoElement>(null)
   const storageKey = `lms_video_${lesson.id}`
+
+  const url = media?.viewUrl || lesson.external_url?.trim() || ''
 
   useEffect(() => {
     const v = videoRef.current
@@ -21,6 +24,15 @@ export function VideoEngineView({ lesson }: { lesson: Lesson }) {
     v.addEventListener('timeupdate', save)
     return () => v.removeEventListener('timeupdate', save)
   }, [url, storageKey])
+
+  if (loading) {
+    return (
+      <div className="aspect-video rounded-2xl bg-slate-100 flex flex-col items-center justify-center text-sm text-slate-500 gap-2">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
+        <p>Loading video…</p>
+      </div>
+    )
+  }
 
   if (!url) {
     return (
