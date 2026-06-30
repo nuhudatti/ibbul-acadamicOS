@@ -7,7 +7,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from apps.accounts.views import root_view, api_root_view
-from apps.accounts.views_monitoring import health_check_view, metrics_view
+from apps.accounts.views_monitoring import health_check_view, health_deep_check_view, metrics_view
 from apps.accounts.admin_views import (
     import_users_view,
     import_users_template_download,
@@ -31,6 +31,7 @@ urlpatterns = [
     path('api/', api_root_view, name='api_root'),
     # Module 8 — Monitoring endpoints
     path('health', health_check_view, name='health'),
+    path('health/deep', health_deep_check_view, name='health_deep'),
     path('metrics', metrics_view, name='metrics'),
     # Users / Accounts admin views: wrapped with admin.site.admin_view() so they're
     # bound to AdminSite and get full admin context (sidebar, breadcrumbs, theme).

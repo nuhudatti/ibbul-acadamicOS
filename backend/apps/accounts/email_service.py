@@ -17,7 +17,7 @@ from typing import Tuple
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
 
-from apps.core.branding_service import LOGO_CID, get_logo_bytes, get_platform_branding_dict
+from apps.core.branding_service import LOGO_CID, get_logo_bytes, get_logo_email_src, get_platform_branding_dict
 
 logger = logging.getLogger(__name__)
 
@@ -206,25 +206,36 @@ def get_branding() -> dict:
     return get_platform_branding_dict()
 
 
+def _resolve_email_logo_src() -> str:
+    """Logo for HTML: inline data URI, HTTPS URL, or CID placeholder for SMTP attachment."""
+    src = get_logo_email_src()
+    if src:
+        return src
+    if get_logo_bytes():
+        return f'cid:{LOGO_CID}'
+    return ''
+
+
 def _esc(text: str) -> str:
     return html.escape(str(text or ''), quote=True)
 
 
-def _bulletproof_button(label: str, url: str, bg: str) -> str:
+def _bulletproof_button(label: str, url: str, bg: str, accent: str) -> str:
+    hover_bg = accent
     return f"""
-<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:28px 0;">
+<table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:32px 0 24px;">
   <tr>
-    <td align="center" bgcolor="{bg}" style="border-radius:10px;mso-padding-alt:14px 32px;">
+    <td align="center" bgcolor="{bg}" style="border-radius:14px;mso-padding-alt:0;">
       <!--[if mso]>
-      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="{_esc(url)}" style="height:48px;v-text-anchor:middle;width:320px;" arcsize="12%" strokecolor="{bg}" fillcolor="{bg}">
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="{_esc(url)}" style="height:52px;v-text-anchor:middle;width:340px;" arcsize="14%" strokecolor="{bg}" fillcolor="{bg}">
         <w:anchorlock/>
         <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">{_esc(label)}</center>
       </v:roundrect>
       <![endif]-->
       <a href="{_esc(url)}" target="_blank" rel="noopener noreferrer"
-         style="display:inline-block;background-color:{bg};color:#ffffff !important;text-decoration:none !important;
-                font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;line-height:48px;
-                padding:0 32px;border-radius:10px;border:2px solid {bg};mso-hide:all;">
+         style="display:inline-block;background:linear-gradient(135deg,{bg} 0%,#062b1a 100%);color:#ffffff !important;text-decoration:none !important;
+                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:16px;font-weight:700;line-height:1;
+                padding:16px 36px;border-radius:14px;border:2px solid {hover_bg};box-shadow:0 4px 14px rgba(15,107,62,0.28);mso-hide:all;">
         {_esc(label)}
       </a>
     </td>
@@ -242,41 +253,41 @@ def render_email_html(
     cta_url: str,
     footer_note: str = '',
     extra_html: str = '',
-    has_logo: bool = True,
+    logo_src: str = '',
 ) -> str:
     b = get_branding()
     primary = b['primary_color']
     accent = b['accent_color']
     navy = '#062b1a'
 
-    if has_logo:
+    if logo_src:
         logo_block = (
-            f'<img src="cid:{LOGO_CID}" alt="{_esc(b["institution_short"])}" width="72" height="72" '
-            f'style="display:block;margin:0 auto 14px;border-radius:14px;border:3px solid {accent};" />'
+            f'<img src="{_esc(logo_src)}" alt="{_esc(b["institution_short"])}" width="120" '
+            f'style="display:block;margin:0 auto 18px;max-width:120px;height:auto;border:0;outline:none;" />'
         )
     else:
         logo_block = (
-            f'<div style="width:72px;height:72px;margin:0 auto 14px;border-radius:14px;'
-            f'background:{primary};border:3px solid {accent};color:#fff;font-size:24px;font-weight:700;'
-            f'line-height:66px;text-align:center;font-family:Georgia,serif;">'
-            f'{_esc(b["institution_short"][:4])}</div>'
+            f'<p style="margin:0 auto 18px;width:72px;height:72px;border-radius:16px;'
+            f'background:{primary};color:#ffffff;font-size:22px;font-weight:700;'
+            f'line-height:72px;text-align:center;font-family:Georgia,serif;">'
+            f'{_esc(b["institution_short"][:4])}</p>'
         )
 
     paragraphs = ''.join(
-        f'<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#334155;font-family:Georgia,serif;">{p}</p>'
+        f'<p style="margin:0 0 18px;font-size:15px;line-height:1.75;color:#334155;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;">{p}</p>'
         for p in body_paragraphs
     )
     footer = (
-        f'<p style="margin:16px 0 0;font-size:12px;color:#64748b;font-family:Arial,sans-serif;">{_esc(footer_note)}</p>'
+        f'<p style="margin:20px 0 0;font-size:12px;line-height:1.6;color:#64748b;font-family:Arial,sans-serif;">{_esc(footer_note)}</p>'
         if footer_note else ''
     )
     link_box = (
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        f'style="margin:8px 0 24px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">'
-        f'<tr><td style="padding:14px 16px;">'
-        f'<p style="margin:0 0 6px;font-size:11px;font-weight:700;text-transform:uppercase;'
-        f'letter-spacing:0.08em;color:#64748b;font-family:Arial,sans-serif;">Direct link (copy if button is hidden)</p>'
-        f'<p style="margin:0;font-size:13px;line-height:1.5;word-break:break-all;font-family:monospace;">'
+        f'style="margin:4px 0 8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;">'
+        f'<tr><td style="padding:16px 18px;">'
+        f'<p style="margin:0 0 8px;font-size:11px;font-weight:700;text-transform:uppercase;'
+        f'letter-spacing:0.08em;color:#64748b;font-family:Arial,sans-serif;">Direct link</p>'
+        f'<p style="margin:0;font-size:13px;line-height:1.55;word-break:break-all;font-family:monospace;">'
         f'<a href="{_esc(cta_url)}" style="color:{primary};text-decoration:underline;">{_esc(cta_url)}</a></p>'
         f'</td></tr></table>'
     )
@@ -289,38 +300,38 @@ def render_email_html(
 <meta name="color-scheme" content="light" />
 <title>{_esc(headline)}</title>
 </head>
-<body style="margin:0;padding:0;background:#eef2f0;-webkit-text-size-adjust:100%;">
+<body style="margin:0;padding:0;background:#f1f5f3;-webkit-text-size-adjust:100%;">
 <span style="display:none!important;visibility:hidden;opacity:0;height:0;width:0;overflow:hidden;">{_esc(preheader)}</span>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f0;padding:32px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f3;padding:40px 16px;">
 <tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #dce3de;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #dce3de;box-shadow:0 8px 30px rgba(6,43,26,0.08);">
 <tr>
-  <td style="background:linear-gradient(145deg,{primary} 0%,{navy} 100%);padding:32px 28px;text-align:center;border-bottom:4px solid {accent};">
+  <td style="background:linear-gradient(155deg,{primary} 0%,{navy} 100%);padding:36px 32px 32px;text-align:center;border-bottom:3px solid {accent};">
     {logo_block}
-    <p style="margin:0;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:{accent};font-family:Arial,sans-serif;font-weight:600;">{_esc(b['institution_short'])} · {_esc(b['tagline'])}</p>
-    <h1 style="margin:10px 0 0;font-size:22px;font-weight:700;color:#ffffff;font-family:Georgia,serif;">{_esc(b['platform_name'])}</h1>
-    <p style="margin:8px 0 0;font-size:12px;color:rgba(255,255,255,0.85);font-family:Arial,sans-serif;">Official Academic Communication</p>
+    <p style="margin:0;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:{accent};font-family:Arial,sans-serif;font-weight:600;">{_esc(b['institution_short'])} · {_esc(b['tagline'])}</p>
+    <h1 style="margin:12px 0 0;font-size:24px;font-weight:700;color:#ffffff;font-family:Georgia,'Times New Roman',serif;letter-spacing:-0.02em;">{_esc(b['platform_name'])}</h1>
+    <p style="margin:10px 0 0;font-size:12px;color:rgba(255,255,255,0.88);font-family:Arial,sans-serif;">Official Academic Communication</p>
   </td>
 </tr>
 <tr>
-  <td style="padding:32px 28px 12px;font-family:Arial,Helvetica,sans-serif;">
-    <p style="margin:0 0 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:{primary};">{_esc(headline)}</p>
-    <p style="margin:0 0 22px;font-size:17px;color:#0f172a;font-family:Georgia,serif;">{_esc(greeting)}</p>
+  <td style="padding:36px 32px 16px;font-family:Arial,Helvetica,sans-serif;">
+    <p style="margin:0 0 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:{primary};">{_esc(headline)}</p>
+    <p style="margin:0 0 24px;font-size:18px;color:#0f172a;font-family:Georgia,serif;font-weight:600;">{_esc(greeting)}</p>
     {paragraphs}
     {extra_html}
-    {_bulletproof_button(cta_label, cta_url, primary)}
+    {_bulletproof_button(cta_label, cta_url, primary, accent)}
     {link_box}
     {footer}
   </td>
 </tr>
 <tr>
-  <td style="padding:22px 28px 28px;border-top:1px solid #e2e8f0;background:#f8fafc;">
-    <p style="margin:0;font-size:11px;color:#94a3b8;line-height:1.65;text-align:center;font-family:Arial,sans-serif;">
+  <td style="padding:24px 32px 32px;border-top:1px solid #e2e8f0;background:#f8fafc;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;line-height:1.7;text-align:center;font-family:Arial,sans-serif;">
       <strong style="color:#64748b;">{_esc(b['institution_name'])}</strong><br />
-      Office of Academic Records · Transactional message — do not share this link<br />
-      <a href="mailto:{_esc(b['support_email'])}" style="color:{primary};">{_esc(b['support_email'])}</a>
+      Office of Academic Records · Transactional message · do not share this link<br />
+      <a href="mailto:{_esc(b['support_email'])}" style="color:{primary};text-decoration:none;">{_esc(b['support_email'])}</a>
     </p>
-    <p style="margin:12px 0 0;font-size:10px;color:#cbd5e1;text-align:center;font-family:Arial,sans-serif;">{_esc(b['footer_text'])}</p>
+    <p style="margin:14px 0 0;font-size:10px;color:#cbd5e1;text-align:center;font-family:Arial,sans-serif;">{_esc(b['footer_text'])}</p>
   </td>
 </tr>
 </table>
@@ -352,10 +363,11 @@ def send_branded_email(
 
     # Prefer SendGrid HTTP API on production hosts (Render blocks/slow SMTP)
     if _use_sendgrid_http_api():
-        try:
+        logo_src = get_logo_email_src()
+        if logo_src:
+            html_body = html_body.replace(f'cid:{LOGO_CID}', logo_src)
+        else:
             html_body = html_body.replace(f'cid:{LOGO_CID}', '')
-        except Exception:
-            pass
         ok, msg = send_via_sendgrid_http(
             to=to,
             subject=subject,
@@ -443,19 +455,19 @@ def build_invitation_email(invitation) -> Tuple[str, str, str]:
         else f'Login email: {invitation.email}'
     )
 
-    subject = f'{b["platform_name"]} — {role_label} invitation · {scope_line}'
+    subject = f'{b["platform_name"]} · {role_label} invitation · {scope_line}'
 
     plain = (
         f'{b["institution_name"]}\n{b["platform_name"]}\n'
         f'OFFICIAL ONBOARDING INVITATION\n\n'
-        f'ACTION REQUIRED — activate your account:\n{accept_url}\n\n'
+        f'ACTION REQUIRED: activate your account:\n{accept_url}\n\n'
         f'Dear {invitation.first_name} {invitation.last_name},\n\n'
         f'You are invited as {role_label} for {scope_line}.\n\n'
         f'{purpose}\n\n'
         f'{login_hint}\n'
         f'Link expires: {expires}\n\n'
         f'If you did not expect this, contact {b["support_email"]}.\n\n'
-        f'— Office of Academic Records\n{b["institution_name"]}\n'
+        f'Office of Academic Records\n{b["institution_name"]}\n'
     )
 
     extra = (
@@ -477,7 +489,7 @@ def build_invitation_email(invitation) -> Tuple[str, str, str]:
         )
 
     html_body = render_email_html(
-        preheader=f'{role_label} invitation — {scope_line}',
+        preheader=f'{role_label} invitation · {scope_line}',
         headline='Official onboarding invitation',
         greeting=f'Dear {invitation.first_name} {invitation.last_name},',
         body_paragraphs=[
@@ -486,11 +498,11 @@ def build_invitation_email(invitation) -> Tuple[str, str, str]:
             purpose,
             f'{login_hint}. This secure link expires on <strong>{expires}</strong>.',
         ],
-        cta_label='Accept invitation & set password',
+        cta_label='Accept invitation',
         cta_url=accept_url,
         footer_note='This is a one-time onboarding link. Do not forward or share it.',
         extra_html=extra,
-        has_logo=bool(get_logo_bytes()),
+        logo_src=_resolve_email_logo_src(),
     )
     return subject, plain, html_body
 
@@ -512,7 +524,7 @@ def build_password_reset_email(*, user, reset_url: str) -> Tuple[str, str, str]:
     scope_line = ' · '.join(scope_parts) if scope_parts else b['institution_name']
     login_id = user.student_id if role_key == 'STUDENT' and user.student_id else user.email
 
-    subject = f'{b["platform_name"]} — Password reset'
+    subject = f'{b["platform_name"]} · Password reset'
 
     plain = (
         f'{b["institution_name"]}\n{b["platform_name"]}\n\n'
@@ -521,7 +533,7 @@ def build_password_reset_email(*, user, reset_url: str) -> Tuple[str, str, str]:
         f'Dear {name},\n\n'
         f'Role: {role_label}\nScope: {scope_line}\nLogin ID: {login_id}\n\n'
         f'If you did not request this, ignore this email.\n\n'
-        f'— {b["institution_name"]}\n'
+        f'{b["institution_name"]}\n'
     )
 
     html_body = render_email_html(
@@ -537,7 +549,7 @@ def build_password_reset_email(*, user, reset_url: str) -> Tuple[str, str, str]:
         cta_label='Reset my password',
         cta_url=reset_url,
         footer_note='Never share this link. Official message from the Office of Academic Records.',
-        has_logo=bool(get_logo_bytes()),
+        logo_src=_resolve_email_logo_src(),
     )
     return subject, plain, html_body
 

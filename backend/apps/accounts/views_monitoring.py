@@ -21,8 +21,21 @@ from apps.academics.models import Result, ResultUploadBatch
 def health_check_view(request):
     """
     GET /health
-    Public health check endpoint (no auth required).
-    Returns 200 if system is healthy, 503 if degraded.
+    Lightweight public keep-alive probe (no auth). Always HTTP 200 for uptime monitors.
+    """
+    return Response({
+        'status': 'ok',
+        'service': 'IBBUL Academic OS',
+        'timestamp': timezone.now().isoformat(),
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def health_deep_check_view(request):
+    """
+    GET /health/deep
+    Optional deep health check with database, cache, and Celery probes.
     """
     health_status = {
         'status': 'healthy',
@@ -31,7 +44,6 @@ def health_check_view(request):
     }
     all_healthy = True
 
-    # Database connectivity
     try:
         with connection.cursor() as cursor:
             cursor.execute('SELECT 1')
@@ -40,7 +52,6 @@ def health_check_view(request):
         health_status['checks']['database'] = f'error: {str(e)}'
         all_healthy = False
 
-    # Cache (Redis) connectivity
     try:
         cache.set('health_check', 'ok', 10)
         if cache.get('health_check') == 'ok':
@@ -52,7 +63,6 @@ def health_check_view(request):
         health_status['checks']['cache'] = f'error: {str(e)}'
         all_healthy = False
 
-    # Celery broker connectivity (if configured)
     celery_broker = getattr(settings, 'CELERY_BROKER_URL', '')
     if celery_broker:
         try:

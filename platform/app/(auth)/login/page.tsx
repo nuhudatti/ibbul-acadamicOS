@@ -62,12 +62,7 @@ export default function LoginPage() {
     try {
       const response = await authAPI.login({ username: trimmedUsername, password: trimmedPassword })
 
-      console.log('LOGIN RAW RESPONSE', response.status, response.data)
-      console.log('typeof response.data', typeof response.data)
-
-      let data = normalizeResponseData(response.data) as Record<string, unknown>
-      console.log('typeof parsed data', typeof data)
-      console.log('keys', Object.keys(data || {}))
+      const data = normalizeResponseData(response.data) as Record<string, unknown>
 
       const user = data.user as User | undefined
       const tokens = data.tokens as { access?: string; refresh?: string } | undefined
@@ -75,8 +70,6 @@ export default function LoginPage() {
       const refresh = tokens?.refresh ?? (data.refresh as string | undefined)
 
       if (!user || typeof access !== 'string' || !access || typeof refresh !== 'string' || !refresh) {
-        console.error('LOGIN FAILURE', data)
-        console.trace()
         setErrors({ general: 'Sign-in response was incomplete. Please try again or contact ICT support.' })
         return
       }
@@ -140,15 +133,17 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <div className="mb-1 flex items-center justify-between">
+            <div className="mb-2 flex items-center justify-between gap-3">
               <label htmlFor="password" className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
                 Password
               </label>
               <Link
                 href="/forgot-password"
-                className="text-[11px] font-medium text-navy-700/80 transition-colors hover:text-gold-700"
+                className="group inline-flex items-center text-xs font-semibold text-brand-700 transition-all hover:text-brand-800"
               >
-                Forgot?
+                <span className="border-b border-transparent pb-0.5 transition-all group-hover:border-brand-400">
+                  Forgot password?
+                </span>
               </Link>
             </div>
             <div className="relative">
@@ -162,13 +157,12 @@ export default function LoginPage() {
                   setErrors((prev) => ({ ...prev, password: undefined, general: undefined }))
                 }}
                 placeholder="••••••••"
-                className={cn('auth-input pr-9', errors.password && 'auth-input-error')}
+                className={cn('auth-input pr-11', errors.password && 'auth-input-error')}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-0 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                tabIndex={-1}
+                className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

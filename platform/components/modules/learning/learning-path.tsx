@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import {
   Lock, CheckCircle2, Circle, ClipboardList, FileText, HelpCircle,
-  ChevronRight, Award,
+  ChevronRight, Award, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { PathStep } from '@/lib/learning-utils'
@@ -27,6 +27,12 @@ export function LearningPath({ steps, offeringId, isInstructor }: LearningPathPr
 
   if (steps.length === 0) return null
 
+  const completedCount = steps.filter((s) => s.status === 'completed').length
+  const activeIndex = steps.findIndex((s) => s.status === 'active')
+  const progressIndex = activeIndex >= 0 ? activeIndex : completedCount
+  const fillPercent =
+    steps.length <= 1 ? (completedCount ? 100 : 0) : (progressIndex / (steps.length - 1)) * 100
+
   return (
     <div className="space-y-6">
       {complete && !isInstructor && (
@@ -43,105 +49,128 @@ export function LearningPath({ steps, offeringId, isInstructor }: LearningPathPr
         </LCard>
       )}
 
-      {/* Group by module */}
-      {groupByModule(steps).map(({ moduleTitle, moduleIndex, moduleSteps }) => (
-        <div key={`mod-${moduleIndex}`}>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400 mb-3 px-1">
-            Module {moduleIndex + 1} · {moduleTitle}
-          </p>
-          <div className="relative pl-1">
-            {moduleSteps.map((step, si) => {
-              const Icon = ICONS[step.typeIcon]
-              const isLast = si === moduleSteps.length - 1
-              const href = `/learning/offerings/${offeringId}/lessons/${step.lesson.id}`
-              const canOpen = isInstructor || step.status !== 'locked'
-
-              const inner = (
-                <div
-                  className={cn(
-                    'relative flex gap-4 pb-6',
-                    !isLast && 'before:absolute before:left-[19px] before:top-10 before:bottom-0 before:w-px',
-                    !isLast && (step.status === 'completed' ? 'before:lm-path-line' : 'before:lm-path-line-muted')
-                  )}
-                >
-                  {/* Step node */}
-                  <div
-                    className={cn(
-                      'relative z-10 w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all duration-300',
-                      step.status === 'completed' && 'bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/25',
-                      step.status === 'active' && 'bg-brand-700 border-brand-600 text-white shadow-lg shadow-brand-600/30 ring-4 ring-brand-100',
-                      step.status === 'locked' && 'bg-white border-slate-200 text-slate-300'
-                    )}
-                  >
-                    {step.status === 'completed' ? (
-                      <CheckCircle2 className="w-5 h-5" />
-                    ) : step.status === 'locked' ? (
-                      <Lock className="w-4 h-4" />
-                    ) : (
-                      <Circle className="w-4 h-4 fill-current" />
-                    )}
-                  </div>
-
-                  {/* Step card */}
-                  <div
-                    className={cn(
-                      'flex-1 min-w-0 rounded-2xl border p-4 transition-all duration-200',
-                      step.status === 'active' && 'border-brand-200 bg-white shadow-md shadow-brand-600/5',
-                      step.status === 'completed' && 'border-slate-200/80 bg-white/60',
-                      step.status === 'locked' && 'border-slate-100 bg-slate-50/50 opacity-75',
-                      canOpen && step.status !== 'locked' && 'hover:border-brand-200 hover:shadow-sm cursor-pointer'
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <LBadge variant={step.status === 'active' ? 'info' : step.status === 'completed' ? 'success' : 'neutral'}>
-                            {step.typeLabel}
-                          </LBadge>
-                          {step.status === 'active' && (
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-brand-700">
-                              Current step
-                            </span>
-                          )}
-                        </div>
-                        <h3 className={cn(
-                          'font-semibold text-slate-900 truncate',
-                          step.status === 'locked' && 'text-slate-500'
-                        )}>
-                          {step.lesson.title}
-                        </h3>
-                        {step.status === 'locked' && step.lockReason && (
-                          <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
-                            <Lock className="w-3 h-3" /> {step.lockReason}
-                          </p>
-                        )}
-                        {step.status === 'active' && (
-                          <p className="text-xs text-emerald-700 mt-2 font-medium flex items-center gap-1 bg-emerald-50 inline-flex px-2 py-1 rounded-lg">
-                            Unlocked — open when you are ready <ChevronRight className="w-3.5 h-3.5" />
-                          </p>
-                        )}
-                      </div>
-                      <div className={cn(
-                        'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
-                        step.status === 'active' ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-400'
-                      )}>
-                        <Icon className="w-4 h-4" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-
-              if (!canOpen) return <div key={step.id}>{inner}</div>
-              return (
-                <Link key={step.id} href={href} className="block">
-                  {inner}
-                </Link>
-              )
-            })}
+      <LCard className="!p-0 overflow-hidden border-slate-200/80 bg-gradient-to-br from-slate-50/80 via-white to-brand-50/20">
+        <div className="border-b border-slate-100 px-5 py-4 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-brand-600" />
+              <p className="text-sm font-semibold text-slate-800">Learning path</p>
+            </div>
+            <p className="text-xs font-medium text-slate-500 tabular-nums">
+              {completedCount} of {steps.length} steps
+            </p>
+          </div>
+          <div className="mt-3 relative h-1.5 overflow-hidden rounded-full bg-slate-200/80">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-600 via-brand-500 to-emerald-500 transition-all duration-700 ease-out"
+              style={{ width: `${Math.min(100, fillPercent)}%` }}
+            />
           </div>
         </div>
-      ))}
+
+        <div className="relative px-4 py-6 sm:px-6">
+          {/* Continuous vertical track behind all steps */}
+          <div
+            className="pointer-events-none absolute left-[39px] top-8 bottom-8 w-0.5 rounded-full bg-slate-200/90 sm:left-[43px]"
+            aria-hidden
+          />
+          <div
+            className="pointer-events-none absolute left-[39px] top-8 w-0.5 rounded-full bg-gradient-to-b from-brand-600 via-brand-500 to-emerald-500 transition-all duration-700 ease-out sm:left-[43px]"
+            style={{ height: `calc(${Math.min(100, fillPercent)}% - 2rem)` }}
+            aria-hidden
+          />
+
+          {groupByModule(steps).map(({ moduleTitle, moduleIndex, moduleSteps }) => (
+            <div key={`mod-${moduleIndex}`} className="relative mb-2 last:mb-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400 mb-4 pl-14 sm:pl-16">
+                Module {moduleIndex + 1} · {moduleTitle}
+              </p>
+              <div className="space-y-1">
+                {moduleSteps.map((step) => {
+                  const Icon = ICONS[step.typeIcon]
+                  const href = `/learning/offerings/${offeringId}/lessons/${step.lesson.id}`
+                  const canOpen = isInstructor || step.status !== 'locked'
+
+                  const inner = (
+                    <div
+                      className={cn(
+                        'relative flex gap-4 rounded-2xl p-3 transition-all duration-200 sm:gap-5 sm:p-4',
+                        step.status === 'active' && 'bg-white/90 shadow-md shadow-brand-600/5 ring-1 ring-brand-100',
+                        step.status === 'completed' && 'bg-white/50',
+                        step.status === 'locked' && 'opacity-80',
+                        canOpen && step.status !== 'locked' && 'hover:bg-white hover:shadow-sm cursor-pointer'
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          'relative z-10 w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all duration-300 sm:w-11 sm:h-11',
+                          step.status === 'completed' && 'bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/25',
+                          step.status === 'active' && 'bg-brand-700 border-brand-600 text-white shadow-lg shadow-brand-600/30 ring-4 ring-brand-100 scale-105',
+                          step.status === 'locked' && 'bg-white border-slate-200 text-slate-300'
+                        )}
+                      >
+                        {step.status === 'completed' ? (
+                          <CheckCircle2 className="w-5 h-5" />
+                        ) : step.status === 'locked' ? (
+                          <Lock className="w-4 h-4" />
+                        ) : (
+                          <Circle className="w-4 h-4 fill-current" />
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <LBadge variant={step.status === 'active' ? 'info' : step.status === 'completed' ? 'success' : 'neutral'}>
+                                {step.typeLabel}
+                              </LBadge>
+                              {step.status === 'active' && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-700 animate-pulse">
+                                  Current step
+                                </span>
+                              )}
+                            </div>
+                            <h3 className={cn(
+                              'font-semibold text-slate-900',
+                              step.status === 'locked' && 'text-slate-500'
+                            )}>
+                              {step.lesson.title}
+                            </h3>
+                            {step.status === 'locked' && step.lockReason && (
+                              <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
+                                <Lock className="w-3 h-3" /> {step.lockReason}
+                              </p>
+                            )}
+                            {step.status === 'active' && (
+                              <p className="text-xs text-emerald-700 mt-2 font-medium inline-flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg">
+                                Unlocked — open when you are ready <ChevronRight className="w-3.5 h-3.5" />
+                              </p>
+                            )}
+                          </div>
+                          <div className={cn(
+                            'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+                            step.status === 'active' ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-400'
+                          )}>
+                            <Icon className="w-4 h-4" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+
+                  if (!canOpen) return <div key={step.id}>{inner}</div>
+                  return (
+                    <Link key={step.id} href={href} className="block">
+                      {inner}
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </LCard>
     </div>
   )
 }

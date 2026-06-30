@@ -280,7 +280,7 @@ export function StudentDashboard() {
               {latestEnrollments.map((enr) => (
                 <Link
                   key={enr.id}
-                  href={`/learning/${enr.offering}`}
+                  href={`/learning/offerings/${enr.offering}`}
                   className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors group"
                 >
                   <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">

@@ -10,6 +10,7 @@ import { learningAPI } from '@/lib/api'
 import { buildLearningPath, getNextLesson, getStepByLessonId } from '@/lib/learning-utils'
 import { LessonEngineView } from '@/components/modules/learning/engine/lesson-engine-view'
 import { StepCompleteCelebration } from '@/components/modules/learning/engine/step-complete-celebration'
+import { LearningJourneyRail } from '@/components/modules/learning/learning-journey-rail'
 import { LBreadcrumb, LCard, LButton, LBadge, LSkeleton } from '@/components/modules/learning/learning-ui'
 import { formatContentTypeLabel } from '@/lib/safe-string'
 import type { LMSOfferingDetail, Lesson } from '@/lib/types'
@@ -133,6 +134,15 @@ export default function LessonPlayerPage() {
         { label: offering.course_code, href: `/learning/offerings/${offeringId}` },
         { label: lesson.title },
       ]} />
+
+      {isStudent && steps.length > 0 && (
+        <LearningJourneyRail
+          steps={steps}
+          offeringId={offeringId}
+          activeLessonId={lessonId}
+          compact
+        />
+      )}
 
       <div className="flex items-start justify-between gap-4">
         <div>

@@ -113,3 +113,26 @@ def get_logo_bytes() -> Optional[Tuple[bytes, str]]:
         with open(default_path, 'rb') as fh:
             return fh.read(), 'png'
     return None
+
+
+def get_logo_email_src() -> Optional[str]:
+    """Resolvable logo URL or inline data URI for HTML email (SendGrid HTTP, etc.)."""
+    branding = get_platform_branding_dict()
+    logo_val = (branding.get('logo_data') or '').strip()
+
+    if logo_val.startswith('http://') or logo_val.startswith('https://'):
+        return logo_val
+    if logo_val.startswith('data:'):
+        return logo_val
+
+    logo_bytes = get_logo_bytes()
+    if logo_bytes:
+        img_bytes, subtype = logo_bytes
+        mime = 'jpeg' if subtype in ('jpg', 'jpeg') else subtype
+        encoded = base64.b64encode(img_bytes).decode('ascii')
+        return f'data:image/{mime};base64,{encoded}'
+
+    logo_url = getattr(settings, 'EMAIL_LOGO_URL', '').strip()
+    if logo_url.startswith('http'):
+        return logo_url
+    return None

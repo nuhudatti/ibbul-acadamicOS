@@ -209,9 +209,9 @@ button, a, input, select, textarea {
 
   .auth-input {
 
-    @apply w-full h-10 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-base md:text-sm text-slate-900 outline-none;
+    @apply w-full h-10 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-base md:text-sm text-slate-900 outline-none shadow-sm;
 
-    @apply placeholder:text-slate-400 focus:bg-white focus:border-brand-600 focus:ring-2 focus:ring-brand-100;
+    @apply placeholder:text-slate-400 focus:bg-white focus:border-brand-600 focus:ring-2 focus:ring-brand-100 focus:shadow-md;
 
   }
 
@@ -229,7 +229,7 @@ button, a, input, select, textarea {
 
     @apply w-full h-10 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2;
 
-    @apply gradient-brand shadow-sm disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply gradient-brand shadow-sm transition-all hover:shadow-md hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed;
 
   }
 

@@ -104,7 +104,7 @@ export function ExaminerDashboard() {
             {offerings.slice(0, 6).map((o) => (
               <Link
                 key={o.id}
-                href={`/learning/${o.id}`}
+                href={`/learning/offerings/${o.id}`}
                 className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 transition-colors group"
               >
                 <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-100 flex items-center justify-center flex-shrink-0">
