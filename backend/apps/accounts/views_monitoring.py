@@ -16,13 +16,15 @@ from .models import User, AuditLog
 from apps.academics.models import Result, ResultUploadBatch
 
 
-@api_view(['GET'])
+@api_view(['GET', 'HEAD'])
 @permission_classes([AllowAny])
 def health_check_view(request):
     """
-    GET /health
-    Lightweight public keep-alive probe (no auth). Always HTTP 200 for uptime monitors.
+    GET /health — JSON keep-alive probe.
+    HEAD /health — empty 200 for UptimeRobot and similar monitors.
     """
+    if request.method == 'HEAD':
+        return Response(status=status.HTTP_200_OK)
     return Response({
         'status': 'ok',
         'service': 'IBBUL Academic OS',
