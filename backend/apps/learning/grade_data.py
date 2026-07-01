@@ -24,6 +24,20 @@ from .models import (
 )
 
 
+def _lesson_quiz_id(lesson: Lesson) -> Optional[int]:
+    """Quiz is linked via OneToOne on Quiz.lesson — Lesson has no quiz_id column."""
+    if not hasattr(lesson, 'quiz'):
+        return None
+    return lesson.quiz.id
+
+
+def _lesson_assignment_id(lesson: Lesson) -> Optional[int]:
+    """Assignment is linked via OneToOne on Assignment.lesson — Lesson has no assignment_id column."""
+    if not hasattr(lesson, 'assignment'):
+        return None
+    return lesson.assignment.id
+
+
 @dataclass
 class OfferingGradeData:
     offering: LMSOffering
@@ -85,7 +99,8 @@ class OfferingGradeData:
         if not sids:
             return
 
-        quiz_ids = [les.quiz_id for les in self.quiz_lessons if hasattr(les, 'quiz') and les.quiz_id]
+        quiz_ids = [_lesson_quiz_id(les) for les in self.quiz_lessons]
+        quiz_ids = [qid for qid in quiz_ids if qid is not None]
         if quiz_ids:
             attempts = QuizAttempt.objects.filter(
                 quiz_id__in=quiz_ids,
@@ -142,9 +157,10 @@ class OfferingGradeData:
     def quiz_average(self, student_id: int) -> Optional[float]:
         scores = []
         for les in self.quiz_lessons:
-            if not hasattr(les, 'quiz') or not les.quiz_id:
+            qid = _lesson_quiz_id(les)
+            if qid is None:
                 continue
-            s = self.best_quiz_scores.get((student_id, les.quiz_id))
+            s = self.best_quiz_scores.get((student_id, qid))
             if s is not None:
                 scores.append(s)
         if not scores:
@@ -154,9 +170,10 @@ class OfferingGradeData:
     def assignment_average(self, student_id: int) -> Optional[float]:
         scores = []
         for les in self.assignment_lessons:
-            if not hasattr(les, 'assignment'):
+            aid = _lesson_assignment_id(les)
+            if aid is None:
                 continue
-            sub = self.submissions.get((student_id, les.assignment_id))
+            sub = self.submissions.get((student_id, aid))
             if sub and sub.score is not None:
                 max_s = les.assignment.max_score or 100
                 scores.append(round(float(sub.score) / max_s * 100, 2))
@@ -219,15 +236,19 @@ class OfferingGradeData:
             asg_scores = []
             published_lessons = [l for l in mod.lessons.all() if l.is_published]
             for lesson in published_lessons:
-                if lesson.content_type == 'quiz' and hasattr(lesson, 'quiz') and lesson.quiz_id:
-                    s = self.best_quiz_scores.get((student_id, lesson.quiz_id))
-                    if s is not None:
-                        quiz_scores.append(s)
-                elif lesson.content_type == 'assignment' and hasattr(lesson, 'assignment'):
-                    sub = self.submissions.get((student_id, lesson.assignment_id))
-                    if sub and sub.score is not None:
-                        max_s = lesson.assignment.max_score or 100
-                        asg_scores.append(float(sub.score) / max_s * 100)
+                if lesson.content_type == 'quiz':
+                    qid = _lesson_quiz_id(lesson)
+                    if qid is not None:
+                        s = self.best_quiz_scores.get((student_id, qid))
+                        if s is not None:
+                            quiz_scores.append(s)
+                elif lesson.content_type == 'assignment':
+                    aid = _lesson_assignment_id(lesson)
+                    if aid is not None:
+                        sub = self.submissions.get((student_id, aid))
+                        if sub and sub.score is not None:
+                            max_s = lesson.assignment.max_score or 100
+                            asg_scores.append(float(sub.score) / max_s * 100)
             q_avg = round(sum(quiz_scores) / len(quiz_scores), 2) if quiz_scores else None
             a_avg = round(sum(asg_scores) / len(asg_scores), 2) if asg_scores else None
             final, letter = compute_final_grade(q_avg, a_avg)

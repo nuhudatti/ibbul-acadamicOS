@@ -13,7 +13,7 @@ from apps.accounts.models import UserRole
 from .models import (
     LMSOffering, Lesson, Quiz, QuizAttempt, Submission, Enrollment, LessonProgress,
 )
-from .grade_data import OfferingGradeData
+from .grade_data import OfferingGradeData, _lesson_assignment_id
 from .serializers import SubmissionSerializer
 
 QUIZ_WEIGHT = 40
@@ -408,8 +408,9 @@ def export_grade_sheet(request, offering_id):
 
         for les in assignment_lessons:
             sub = None
-            if hasattr(les, 'assignment'):
-                sub = grade_data.submissions.get((st.id, les.assignment_id))
+            aid = _lesson_assignment_id(les)
+            if aid is not None:
+                sub = grade_data.submissions.get((st.id, aid))
             if sub and sub.score is not None:
                 row.append(float(sub.score))
             elif sub:
