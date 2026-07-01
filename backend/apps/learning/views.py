@@ -335,7 +335,11 @@ class LMSOfferingViewSet(viewsets.ModelViewSet):
                 data.append(_row(st, source='results'))
 
         data.sort(key=lambda x: (x['student_id'] or x['full_name'] or '').lower())
-        return Response({'count': len(data), 'students': data})
+        return Response({
+            'count': len(data),
+            'course_code': offering.course.code,
+            'students': data,
+        })
 
 
 # ─── Enrollment ──────────────────────────────────────────────────────────────
@@ -1253,7 +1257,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
 
         subs_qs = assignment.submissions.filter(score__isnull=True).exclude(content='')
         total_pending = subs_qs.count()
-        use_background = request.query_params.get('sync') != '1'
+        use_background = request.query_params.get('sync') != '1' and request.query_params.get('background') == '1'
 
         if use_background and total_pending > 0:
             from .tasks import create_job, enqueue_ai_bulk

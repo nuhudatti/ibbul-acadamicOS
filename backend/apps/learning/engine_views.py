@@ -459,12 +459,14 @@ def offering_grading_workspace(request, offering_id):
     Combined payload for lecturer grading UI — one round trip instead of 3+N.
     GET /api/learning/offerings/{id}/grading-workspace/
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     try:
         offering = LMSOffering.objects.select_related(
             'course', 'course__department', 'instructor'
         ).prefetch_related(
             'modules__lessons__assignment',
-            'modules__lessons__quiz',
         ).get(pk=offering_id)
     except LMSOffering.DoesNotExist:
         return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -472,59 +474,93 @@ def offering_grading_workspace(request, offering_id):
     if not _can_manage_offering(request.user, offering):
         return Response(status=status.HTTP_403_FORBIDDEN)
 
-    enrollments = Enrollment.objects.filter(offering=offering, is_active=True).select_related('student')
-    student_ids = list(enrollments.values_list('student_id', flat=True))
-    grade_data = OfferingGradeData.load(offering, student_ids)
+    try:
+        enrollments = list(
+            Enrollment.objects.filter(offering=offering, is_active=True).select_related('student')
+        )
+        student_ids = [e.student_id for e in enrollments]
+        grade_data = OfferingGradeData.load(offering, student_ids)
 
-    rows = []
-    for enr in enrollments:
-        st = enr.student
-        q_avg = grade_data.quiz_average(st.id)
-        a_avg = grade_data.assignment_average(st.id)
-        final, letter = compute_final_grade(q_avg, a_avg)
-        rows.append({
-            'student_id': st.student_id or str(st.id),
-            'full_name': st.get_full_name(),
-            'quiz_average': q_avg,
-            'assignment_average': a_avg,
-            'quiz_weight': QUIZ_WEIGHT,
-            'assignment_weight': ASSIGNMENT_WEIGHT,
-            'final_score': final,
-            'letter_grade': letter,
-        })
-
-    subs_by_assignment = {}
-    for assignment_id, subs in grade_data.submissions_by_assignment().items():
-        subs_by_assignment[str(assignment_id)] = SubmissionSerializer(subs, many=True).data
-
-    assignments_meta = []
-    for les in grade_data.assignment_lessons:
-        if hasattr(les, 'assignment'):
-            a = les.assignment
-            assignments_meta.append({
-                'id': a.id,
-                'title': a.title,
-                'max_score': a.max_score or 100,
-                'module_title': les.module.title if les.module_id else '',
-                'enable_ai_grading': getattr(a, 'enable_ai_grading', False),
+        rows = []
+        for enr in enrollments:
+            st = enr.student
+            q_avg = grade_data.quiz_average(st.id)
+            a_avg = grade_data.assignment_average(st.id)
+            final, letter = compute_final_grade(q_avg, a_avg)
+            rows.append({
+                'student_id': st.student_id or str(st.id),
+                'full_name': st.get_full_name(),
+                'quiz_average': q_avg,
+                'assignment_average': a_avg,
+                'quiz_weight': QUIZ_WEIGHT,
+                'assignment_weight': ASSIGNMENT_WEIGHT,
+                'final_score': final,
+                'letter_grade': letter,
             })
 
-    from .serializers import LMSOfferingDetailSerializer
-    offering_detail = LMSOfferingDetailSerializer(offering, context={'request': request}).data
+        subs_by_assignment = {}
+        for assignment_id, subs in grade_data.submissions_by_assignment().items():
+            subs_by_assignment[str(assignment_id)] = [
+                _submission_grading_dict(sub) for sub in subs
+            ]
 
-    return Response({
-        'summary': grade_data.grading_summary_stats(),
-        'gradebook': {
-            'offering_id': offering.id,
-            'course_code': offering.course.code,
-            'weights': {'quiz': QUIZ_WEIGHT, 'assignment': ASSIGNMENT_WEIGHT},
-            'grade_bands': [{'min': t, 'grade': g} for t, g in GRADE_BANDS],
-            'students': rows,
-        },
-        'assignments': assignments_meta,
-        'submissions_by_assignment': subs_by_assignment,
-        'offering': offering_detail,
-    })
+        assignments_meta = []
+        for les in grade_data.assignment_lessons:
+            if hasattr(les, 'assignment'):
+                a = les.assignment
+                assignments_meta.append({
+                    'id': a.id,
+                    'title': a.title,
+                    'max_score': a.max_score or 100,
+                    'module_title': les.module.title if les.module_id else '',
+                    'enable_ai_grading': bool(getattr(a, 'enable_ai_grading', False)),
+                })
+
+        return Response({
+            'summary': grade_data.grading_summary_stats(),
+            'gradebook': {
+                'offering_id': offering.id,
+                'course_code': offering.course.code,
+                'weights': {'quiz': QUIZ_WEIGHT, 'assignment': ASSIGNMENT_WEIGHT},
+                'grade_bands': [{'min': t, 'grade': g} for t, g in GRADE_BANDS],
+                'students': rows,
+            },
+            'assignments': assignments_meta,
+            'submissions_by_assignment': subs_by_assignment,
+        })
+    except Exception as exc:
+        logger.exception('grading-workspace failed for offering %s', offering_id)
+        return Response(
+            {'detail': f'Grading workspace error: {str(exc)[:200]}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+def _submission_grading_dict(sub):
+    """Lightweight submission payload for grading workspace (no heavy serializer)."""
+    return {
+        'id': sub.id,
+        'assignment': sub.assignment_id,
+        'assignment_title': sub.assignment.title if sub.assignment_id else '',
+        'student_user_id': sub.student_id,
+        'student_matric': sub.student.student_id if sub.student_id else '',
+        'student_name': sub.student.get_full_name() if sub.student_id else '',
+        'content': sub.content or '',
+        'file_key': sub.file_key or '',
+        'submitted_at': sub.submitted_at.isoformat() if sub.submitted_at else None,
+        'is_late': sub.is_late,
+        'score': str(sub.score) if sub.score is not None else None,
+        'graded_at': sub.graded_at.isoformat() if sub.graded_at else None,
+        'feedback': sub.feedback or '',
+        'similarity_score': float(sub.similarity_score) if sub.similarity_score is not None else None,
+        'similarity_report': sub.similarity_report or {},
+        'ai_suggested_score': float(sub.ai_suggested_score) if sub.ai_suggested_score is not None else None,
+        'ai_feedback': getattr(sub, 'ai_feedback', '') or '',
+        'ai_graded': bool(getattr(sub, 'ai_graded', False)),
+        'ai_confidence_score': float(sub.ai_confidence_score) if getattr(sub, 'ai_confidence_score', None) is not None else None,
+        'ai_strengths': getattr(sub, 'ai_strengths', None) or [],
+        'ai_weaknesses': getattr(sub, 'ai_weaknesses', None) or [],
+    }
 
 
 @api_view(['POST'])

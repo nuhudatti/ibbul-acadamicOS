@@ -11,7 +11,7 @@ import { getLearningApiError } from '@/lib/learning-utils'
 import { gradeColor, type GradebookResponse } from '@/lib/learning-grading'
 import { LCard, LButton, LProgressRing, LSkeleton } from './learning-ui'
 import { cn, formatDateTime } from '@/lib/utils'
-import type { LMSOfferingDetail, Submission } from '@/lib/types'
+import type { Submission } from '@/lib/types'
 
 interface StudentRow {
   user_id: number
@@ -43,7 +43,7 @@ export function LecturerGradingWorkspace({
   students: StudentRow[]
 }) {
   const [coreLoading, setCoreLoading] = useState(true)
-  const [offering, setOffering] = useState<LMSOfferingDetail | null>(null)
+  const [assignments, setAssignments] = useState<AssignmentMeta[]>([])
   const [gradebook, setGradebook] = useState<GradebookResponse | null>(null)
   const [submissionsByAssignment, setSubmissionsByAssignment] = useState<
     Record<number, Submission[]>
@@ -63,54 +63,121 @@ export function LecturerGradingWorkspace({
   const [bulkAiLoading, setBulkAiLoading] = useState<number | null>(null)
   const [bulkAiProgress, setBulkAiProgress] = useState('')
 
-  const assignments = useMemo((): AssignmentMeta[] => {
-    if (offering) {
-      const items: AssignmentMeta[] = []
-      for (const mod of offering.modules ?? []) {
-        for (const lesson of mod.lessons ?? []) {
-          if (lesson.content_type === 'assignment' && lesson.assignment) {
-            items.push({
-              id: lesson.assignment.id,
-              title: lesson.assignment.title,
-              max_score: lesson.assignment.max_score || 100,
-              moduleTitle: mod.title,
-              enable_ai_grading: lesson.assignment.enable_ai_grading,
-            })
-          }
+  const mapApiAssignments = useCallback((
+    raw: Array<{
+      id: number
+      title: string
+      max_score: number
+      module_title?: string
+      enable_ai_grading?: boolean
+    }>,
+  ): AssignmentMeta[] =>
+    raw.map((a) => ({
+      id: a.id,
+      title: a.title,
+      max_score: a.max_score || 100,
+      moduleTitle: a.module_title ?? '',
+      enable_ai_grading: a.enable_ai_grading,
+    })), [])
+
+  const assignmentsFromOffering = useCallback((offering: {
+    modules?: Array<{
+      title: string
+      lessons?: Array<{
+        content_type: string
+        assignment?: {
+          id: number
+          title: string
+          max_score?: number
+          enable_ai_grading?: boolean
+        }
+      }>
+    }>
+  }): AssignmentMeta[] => {
+    const items: AssignmentMeta[] = []
+    for (const mod of offering.modules ?? []) {
+      for (const lesson of mod.lessons ?? []) {
+        if (lesson.content_type === 'assignment' && lesson.assignment) {
+          items.push({
+            id: lesson.assignment.id,
+            title: lesson.assignment.title,
+            max_score: lesson.assignment.max_score || 100,
+            moduleTitle: mod.title,
+            enable_ai_grading: lesson.assignment.enable_ai_grading,
+          })
         }
       }
-      return items
     }
-    return []
-  }, [offering])
+    return items
+  }, [])
 
-  const applyWorkspacePayload = useCallback((data: Awaited<ReturnType<typeof learningAPI.getGradingWorkspace>>['data']) => {
-    setOffering(data.offering)
+  const applyWorkspacePayload = useCallback((
+    data: Awaited<ReturnType<typeof learningAPI.getGradingWorkspace>>['data'],
+  ) => {
     setGradebook(data.gradebook)
     setSummary(data.summary)
+    if (data.assignments?.length) {
+      setAssignments(mapApiAssignments(data.assignments))
+    } else if (data.offering) {
+      setAssignments(assignmentsFromOffering(data.offering))
+    }
     const map: Record<number, Submission[]> = {}
     for (const [aid, subs] of Object.entries(data.submissions_by_assignment ?? {})) {
       map[Number(aid)] = subs as Submission[]
     }
     setSubmissionsByAssignment(map)
-  }, [])
+  }, [mapApiAssignments, assignmentsFromOffering])
 
-  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+  const loadLegacy = useCallback(async () => {
+    const [gbResp, sumResp] = await Promise.all([
+      learningAPI.getGradebook(offeringId),
+      learningAPI.getGradingSummary(offeringId),
+    ])
+    setGradebook(gbResp.data)
+    setSummary(sumResp.data)
+
+    const offResp = await learningAPI.getOfferingDetail(offeringId)
+    const items = assignmentsFromOffering(offResp.data)
+    setAssignments(items)
+
+    const subsMap: Record<number, Submission[]> = {}
+    await Promise.all(
+      items.map(async (a) => {
+        try {
+          const r = await learningAPI.getSubmissions(a.id)
+          subsMap[a.id] = r.data
+        } catch {
+          subsMap[a.id] = []
+        }
+      }),
+    )
+    setSubmissionsByAssignment(subsMap)
+  }, [offeringId, assignmentsFromOffering])
+
+  const load = useCallback(async (opts?: { quiet?: boolean; invalidateCache?: boolean }) => {
     if (!opts?.quiet) setCoreLoading(true)
     try {
-      invalidateCacheKey(`grading-workspace:${offeringId}`)
+      if (opts?.invalidateCache) {
+        invalidateCacheKey(`grading-workspace:${offeringId}`)
+      }
       const resp = await cachedGet(
         `grading-workspace:${offeringId}`,
         () => learningAPI.getGradingWorkspace(offeringId).then((r) => r.data),
         15_000,
       )
       applyWorkspacePayload(resp)
-    } catch {
-      if (!opts?.quiet) toast.error('Failed to load grading data')
+    } catch (workspaceErr) {
+      try {
+        await loadLegacy()
+      } catch {
+        if (!opts?.quiet) {
+          toast.error(getLearningApiError(workspaceErr, 'Failed to load grading data'))
+        }
+      }
     } finally {
       if (!opts?.quiet) setCoreLoading(false)
     }
-  }, [offeringId, applyWorkspacePayload])
+  }, [offeringId, applyWorkspacePayload, loadLegacy])
 
   useEffect(() => { load() }, [load])
 
@@ -140,40 +207,53 @@ export function LecturerGradingWorkspace({
     setExporting(true)
     setExportStatus('Preparing export…')
     try {
-      const start = await learningAPI.startExportGradeSheet(offeringId)
-      const jobId = start.data.job_id
-      for (let i = 0; i < 120; i++) {
-        await sleep(1500)
-        const poll = await learningAPI.pollExportGradeSheetJob(offeringId, jobId)
-        if (poll.data.status === 'running' || poll.data.status === 'queued') {
-          setExportStatus('Preparing export…')
-          continue
+      try {
+        const start = await learningAPI.startExportGradeSheet(offeringId)
+        const jobId = start.data.job_id
+        for (let i = 0; i < 120; i++) {
+          await sleep(1500)
+          const poll = await learningAPI.pollExportGradeSheetJob(offeringId, jobId)
+          if (poll.data.status === 'running' || poll.data.status === 'queued') {
+            setExportStatus('Preparing export…')
+            continue
+          }
+          if (poll.data.status === 'failed') {
+            throw new Error(poll.data.error || 'Export failed')
+          }
+          if (poll.data.status === 'complete' && poll.data.download?.data_base64) {
+            const raw = atob(poll.data.download.data_base64)
+            const bytes = new Uint8Array(raw.length)
+            for (let j = 0; j < raw.length; j++) bytes[j] = raw.charCodeAt(j)
+            const blob = new Blob([bytes], {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = poll.data.download.filename || `grade_sheet_offering_${offeringId}.xlsx`
+            a.click()
+            URL.revokeObjectURL(url)
+            setExportStatus('')
+            toast.success('Grade sheet downloaded')
+            return
+          }
         }
-        if (poll.data.status === 'failed') {
-          throw new Error(poll.data.error || 'Export failed')
-        }
-        if (poll.data.status === 'complete' && poll.data.download?.data_base64) {
-          const raw = atob(poll.data.download.data_base64)
-          const bytes = new Uint8Array(raw.length)
-          for (let j = 0; j < raw.length; j++) bytes[j] = raw.charCodeAt(j)
-          const blob = new Blob([bytes], {
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          })
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `grade_sheet_offering_${offeringId}.xlsx`
-          a.click()
-          URL.revokeObjectURL(url)
-          setExportStatus('')
-          toast.success('Grade sheet downloaded')
-          return
-        }
+        throw new Error('Export timed out')
+      } catch {
+        const blobResp = await learningAPI.exportGradeSheet(offeringId)
+        const blob = blobResp.data as Blob
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `grade_sheet_offering_${offeringId}.xlsx`
+        a.click()
+        URL.revokeObjectURL(url)
+        setExportStatus('')
+        toast.success('Grade sheet downloaded')
       }
-      throw new Error('Export timed out')
     } catch (err) {
       setExportStatus('')
-      toast.error(err instanceof Error ? err.message : 'Could not export grade sheet')
+      toast.error(getLearningApiError(err, 'Could not export grade sheet'))
     } finally {
       setExporting(false)
     }
@@ -195,7 +275,7 @@ export function LecturerGradingWorkspace({
           setBulkAiProgress(`Grading ${done} / ${tot}…`)
           if (poll.data.status === 'complete') {
             toast.success(`AI processed ${poll.data.processed ?? done} submission(s) — review and approve grades`)
-            load({ quiet: true })
+            load({ quiet: true, invalidateCache: true })
             break
           }
           if (poll.data.status === 'failed') {
@@ -204,7 +284,7 @@ export function LecturerGradingWorkspace({
         }
       } else {
         toast.success(`AI processed ${resp.data.processed ?? 0} submission(s) — review and approve grades`)
-        load({ quiet: true })
+        load({ quiet: true, invalidateCache: true })
       }
     } catch (err) {
       toast.error(getLearningApiError(err, 'Bulk AI grading failed'))

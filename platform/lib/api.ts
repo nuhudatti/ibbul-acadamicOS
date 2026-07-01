@@ -641,7 +641,19 @@ export const learningAPI = {
     api.get('/learning/offerings/my_offerings/'),
 
   getOfferingStudents: (id: number) =>
-    api.get(`/learning/offerings/${id}/students/`),
+    api.get<{
+      count: number
+      course_code?: string
+      students: Array<{
+        user_id: number
+        student_id: string
+        full_name: string
+        email: string
+        progress_percent: number
+        lessons_completed: number
+        total_lessons: number
+      }>
+    }>(`/learning/offerings/${id}/students/`),
 
   createOffering: (data: Partial<{ course: number; session: string; semester: string; description: string; is_published: boolean }>) =>
     api.post('/learning/offerings/', data),
@@ -830,7 +842,7 @@ export const learningAPI = {
         enable_ai_grading?: boolean
       }>
       submissions_by_assignment: Record<string, import('@/lib/types').Submission[]>
-      offering: import('@/lib/types').LMSOfferingDetail
+      offering?: import('@/lib/types').LMSOfferingDetail
     }>(`/learning/offerings/${offeringId}/grading-workspace/`),
 
   exportGradeSheet: (offeringId: number) =>
@@ -859,7 +871,7 @@ export const learningAPI = {
       processed?: number
       total_pending?: number
       background?: boolean
-    }>(`/learning/assignments/${assignmentId}/ai-suggest-grade-bulk/`),
+    }>(`/learning/assignments/${assignmentId}/ai-suggest-grade-bulk/?sync=1`),
 
   pollAiBulkJob: (assignmentId: number, jobId: string) =>
     api.get<{

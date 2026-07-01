@@ -190,7 +190,10 @@ class OfferingGradeData:
             if (s.similarity_report or {}).get('flagged')
             or (s.similarity_score and float(s.similarity_score) >= 0.85)
         )
-        ai_awaiting = sum(1 for s in self.all_submissions if s.ai_graded and s.score is None)
+        ai_awaiting = sum(
+            1 for s in self.all_submissions
+            if getattr(s, 'ai_graded', False) and s.score is None
+        )
 
         return {
             'total_students': total_students,
