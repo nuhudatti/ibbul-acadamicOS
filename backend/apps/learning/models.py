@@ -198,6 +198,18 @@ class Quiz(models.Model):
     )
     shuffle_questions = models.BooleanField(default=False)
     due_at = models.DateTimeField(null=True, blank=True)
+    secure_mode_enabled = models.BooleanField(
+        default=True,
+        help_text='Enable secure assessment mode for this quiz',
+    )
+    max_violations = models.PositiveIntegerField(
+        default=3,
+        help_text='Violations before auto-submit',
+    )
+    auto_submit_on_violations = models.BooleanField(
+        default=True,
+        help_text='Auto-submit when max violations reached',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -210,11 +222,21 @@ class Quiz(models.Model):
 
 
 class QuizQuestion(models.Model):
-    """A single question in a Quiz with MCQ options."""
+    """A single question in a Quiz — MCQ or short answer."""
+    QUESTION_TYPES = [
+        ('mcq', 'Multiple Choice'),
+        ('short_answer', 'Short Answer'),
+    ]
+
     quiz = models.ForeignKey(
         Quiz,
         on_delete=models.CASCADE,
         related_name='questions',
+    )
+    question_type = models.CharField(
+        max_length=20,
+        choices=QUESTION_TYPES,
+        default='mcq',
     )
     question_text = models.TextField()
     options = models.JSONField(
@@ -222,7 +244,12 @@ class QuizQuestion(models.Model):
         help_text='List of option strings, e.g. ["Option A", "Option B", ...]',
     )
     correct_index = models.PositiveIntegerField(
-        help_text='0-based index of the correct option',
+        default=0,
+        help_text='0-based index of the correct option (MCQ only)',
+    )
+    model_answer = models.TextField(
+        blank=True,
+        help_text='Reference answer for short-answer similarity grading',
     )
     explanation = models.TextField(
         blank=True,
@@ -284,6 +311,14 @@ class QuizAttempt(models.Model):
         default=0,
         help_text='Number of times student switched away from the quiz window',
     )
+    violation_log = models.JSONField(
+        default=list,
+        help_text='Secure-mode violation events',
+    )
+    auto_submitted = models.BooleanField(
+        default=False,
+        help_text='Auto-submitted by timeout or violations',
+    )
 
     class Meta:
         ordering = ['-started_at']
@@ -295,19 +330,39 @@ class QuizAttempt(models.Model):
         return f'{self.student} — {self.quiz} — Attempt {self.attempt_number}'
 
     def calculate_score(self):
-        """Calculate percentage score from submitted answers."""
+        """Calculate percentage score from submitted answers (MCQ + short answer)."""
+        from .services.plagiarism_engine import compare_texts
+
         questions = self.quiz.questions.all()
         if not questions:
             return 0
-        correct = 0
+        earned = 0
         total_points = sum(q.points for q in questions)
         for q in questions:
             submitted = self.answers.get(str(q.id))
-            if submitted is not None and int(submitted) == q.correct_index:
-                correct += q.points
+            if submitted is None:
+                continue
+            q_type = getattr(q, 'question_type', 'mcq') or 'mcq'
+            if q_type == 'short_answer':
+                if not str(submitted).strip():
+                    continue
+                if q.model_answer:
+                    sim = compare_texts(str(submitted), q.model_answer)
+                    if sim['combined_score'] >= 0.85:
+                        earned += q.points
+                    elif sim['combined_score'] >= 0.65:
+                        earned += q.points * 0.5
+                else:
+                    earned += q.points * 0.5 if len(str(submitted).strip()) >= 10 else 0
+            else:
+                try:
+                    if int(submitted) == q.correct_index:
+                        earned += q.points
+                except (TypeError, ValueError):
+                    pass
         if total_points == 0:
             return 0
-        return round((correct / total_points) * 100, 2)
+        return round((earned / total_points) * 100, 2)
 
 
 class Assignment(models.Model):
@@ -327,6 +382,9 @@ class Assignment(models.Model):
     max_score = models.PositiveIntegerField(default=100)
     due_at = models.DateTimeField(null=True, blank=True)
     allow_late_submission = models.BooleanField(default=False)
+    enable_ai_grading = models.BooleanField(default=False)
+    similarity_check_enabled = models.BooleanField(default=True)
+    rubric = models.TextField(blank=True, help_text='Grading rubric for AI-assisted grading')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -377,6 +435,16 @@ class Submission(models.Model):
     )
     feedback = models.TextField(blank=True)
     focus_loss_count = models.PositiveIntegerField(default=0)
+    violation_log = models.JSONField(default=list)
+    similarity_score = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+    )
+    similarity_report = models.JSONField(default=dict, blank=True)
+    ai_suggested_score = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+    )
+    ai_feedback = models.TextField(blank=True)
+    ai_graded = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-submitted_at']

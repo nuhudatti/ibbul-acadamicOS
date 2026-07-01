@@ -38,6 +38,37 @@ from .media_access import (
 )
 from .permissions import IsInstructor, IsOfferingInstructor
 
+SUBMIT_GRACE_SECONDS = 30
+
+
+def _finalize_quiz_attempt(
+    attempt,
+    quiz,
+    *,
+    answers,
+    focus_loss_count=0,
+    violations=None,
+    timed_out=False,
+    auto_submitted=False,
+):
+    """Grade and persist a quiz attempt (normal, timed out, or violation auto-submit)."""
+    attempt.answers = answers or {}
+    attempt.focus_loss_count = focus_loss_count
+    attempt.violation_log = violations or []
+    attempt.auto_submitted = auto_submitted
+    attempt.submitted_at = timezone.now()
+    attempt.status = 'timed_out' if timed_out else 'submitted'
+    score = attempt.calculate_score()
+    attempt.score = score
+    attempt.passed = score >= quiz.passing_score
+    attempt.save()
+    if attempt.passed:
+        progress, _ = LessonProgress.objects.get_or_create(
+            lesson=quiz.lesson, student=attempt.student
+        )
+        progress.mark_complete()
+    return attempt
+
 
 # ─── LMS Offering ────────────────────────────────────────────────────────────
 
@@ -757,8 +788,24 @@ class QuizViewSet(viewsets.ModelViewSet):
             quiz=quiz, student=request.user, status='in_progress'
         ).first()
         if in_progress:
-            serializer = QuizAttemptSerializer(in_progress)
-            return Response(serializer.data)
+            if in_progress.expires_at:
+                grace_end = in_progress.expires_at + timedelta(seconds=SUBMIT_GRACE_SECONDS)
+                if timezone.now() > grace_end:
+                    _finalize_quiz_attempt(
+                        in_progress,
+                        quiz,
+                        answers=in_progress.answers or {},
+                        focus_loss_count=in_progress.focus_loss_count,
+                        violations=in_progress.violation_log or [],
+                        timed_out=True,
+                        auto_submitted=True,
+                    )
+                else:
+                    serializer = QuizAttemptSerializer(in_progress)
+                    return Response(serializer.data)
+            else:
+                serializer = QuizAttemptSerializer(in_progress)
+                return Response(serializer.data)
 
         expires_at = None
         if quiz.time_limit_minutes:
@@ -795,38 +842,61 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         serializer = QuizSubmitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        answers = payload['answers']
+        violations = payload.get('violations') or []
+        focus_loss = max(int(payload.get('focus_loss_count', 0)), len(violations))
+        timed_out_flag = bool(payload.get('timed_out', False))
+        auto_submitted = bool(payload.get('auto_submitted', False))
 
-        # Check expiry
-        if attempt.expires_at and timezone.now() > attempt.expires_at:
-            attempt.status = 'timed_out'
-            attempt.submitted_at = timezone.now()
-            attempt.save(update_fields=['status', 'submitted_at'])
-            return Response(
-                {'detail': 'Quiz time expired.', 'status': 'timed_out'},
-                status=status.HTTP_400_BAD_REQUEST,
+        expired = bool(attempt.expires_at and timezone.now() > attempt.expires_at)
+        within_grace = bool(
+            attempt.expires_at
+            and timezone.now() <= attempt.expires_at + timedelta(seconds=SUBMIT_GRACE_SECONDS)
+        )
+
+        max_violations = getattr(quiz, 'max_violations', 3) or 3
+        if getattr(quiz, 'auto_submit_on_violations', True) and focus_loss >= max_violations:
+            auto_submitted = True
+
+        is_timeout = timed_out_flag or (expired and within_grace)
+
+        if expired and not within_grace and not timed_out_flag:
+            _finalize_quiz_attempt(
+                attempt,
+                quiz,
+                answers=answers,
+                focus_loss_count=focus_loss,
+                violations=violations,
+                timed_out=True,
+                auto_submitted=True,
             )
+            return Response({
+                'status': 'timed_out',
+                'score': float(attempt.score or 0),
+                'passed': bool(attempt.passed),
+                'passing_score': quiz.passing_score,
+                'auto_submitted': True,
+                'detail': 'Quiz time expired. Partial answers were graded.',
+            })
 
-        attempt.answers = serializer.validated_data['answers']
-        attempt.focus_loss_count = serializer.validated_data.get('focus_loss_count', 0)
-        attempt.status = 'submitted'
-        attempt.submitted_at = timezone.now()
-        score = attempt.calculate_score()
-        attempt.score = score
-        attempt.passed = score >= quiz.passing_score
-        attempt.save()
-
-        # Mark lesson as complete if passed
-        if attempt.passed:
-            progress, _ = LessonProgress.objects.get_or_create(
-                lesson=quiz.lesson, student=request.user
-            )
-            progress.mark_complete()
+        _finalize_quiz_attempt(
+            attempt,
+            quiz,
+            answers=answers,
+            focus_loss_count=focus_loss,
+            violations=violations,
+            timed_out=is_timeout,
+            auto_submitted=auto_submitted,
+        )
 
         return Response({
-            'status': 'submitted',
-            'score': float(score),
-            'passed': attempt.passed,
+            'status': attempt.status,
+            'score': float(attempt.score or 0),
+            'passed': bool(attempt.passed),
             'passing_score': quiz.passing_score,
+            'auto_submitted': auto_submitted,
+            'timed_out': is_timeout,
         })
 
     @action(detail=True, methods=['get'])
@@ -838,6 +908,44 @@ class QuizViewSet(viewsets.ModelViewSet):
         ).order_by('-started_at')
         serializer = QuizAttemptSerializer(attempts, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def log_violation(self, request, pk=None):
+        """
+        POST /api/learning/quizzes/{id}/log_violation/
+        Body: { event_type, metadata }
+        """
+        if request.user.role != UserRole.STUDENT:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        quiz = self.get_object()
+        attempt = QuizAttempt.objects.filter(
+            quiz=quiz, student=request.user, status='in_progress'
+        ).first()
+        if not attempt:
+            return Response(
+                {'detail': 'No active quiz attempt found.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        event = {
+            'type': request.data.get('event_type', 'unknown'),
+            'timestamp': timezone.now().isoformat(),
+            'metadata': request.data.get('metadata') or {},
+        }
+        log = list(attempt.violation_log or [])
+        log.append(event)
+        attempt.violation_log = log
+        attempt.focus_loss_count = len(log)
+        attempt.save(update_fields=['violation_log', 'focus_loss_count'])
+
+        max_v = getattr(quiz, 'max_violations', 3) or 3
+        auto_submit = bool(
+            getattr(quiz, 'auto_submit_on_violations', True) and len(log) >= max_v
+        )
+        return Response({
+            'violation_count': len(log),
+            'max_violations': max_v,
+            'auto_submit': auto_submit,
+        })
 
 
 # ─── Assignment ViewSet ───────────────────────────────────────────────────────
@@ -887,7 +995,25 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             content=request.data.get('content', ''),
             file_key=request.data.get('file_key', ''),
             focus_loss_count=int(request.data.get('focus_loss_count', 0)),
+            violation_log=request.data.get('violations') or [],
         )
+
+        if getattr(assignment, 'similarity_check_enabled', True):
+            from .services.plagiarism_engine import check_against_corpus
+            others = Submission.objects.filter(assignment=assignment).exclude(pk=submission.pk)
+            corpus = [
+                {
+                    'id': s.student_id,
+                    'label': s.student.get_full_name() or str(s.student_id),
+                    'text': s.content,
+                }
+                for s in others if s.content
+            ]
+            report = check_against_corpus(submission.content, corpus)
+            submission.similarity_score = report['highest_score']
+            submission.similarity_report = report
+            submission.save(update_fields=['similarity_score', 'similarity_report'])
+
         serializer = SubmissionSerializer(submission)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -926,6 +1052,55 @@ class AssignmentViewSet(viewsets.ModelViewSet):
 
         serializer = SubmissionSerializer(submission)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='ai-suggest-grade')
+    def ai_suggest_grade(self, request, pk=None):
+        """
+        POST /api/learning/assignments/{id}/ai-suggest-grade/
+        Body: { student_id }
+        Lecturer-only AI grading suggestion (must approve final score separately).
+        """
+        if request.user.role not in (
+            UserRole.EXAMINER, UserRole.DEPARTMENT_ADMIN, UserRole.HOD,
+            UserRole.FACULTY_ADMIN, UserRole.SUPER_ADMIN,
+        ):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        assignment = self.get_object()
+        if assignment.lesson.module.offering.instructor_id != request.user.id and request.user.role == UserRole.EXAMINER:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        student_id = request.data.get('student_id')
+        try:
+            submission = Submission.objects.get(
+                assignment=assignment, student_id=student_id
+            )
+        except Submission.DoesNotExist:
+            return Response(
+                {'detail': 'Submission not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from .services.ai_grading_service import suggest_grade
+        ok, result = suggest_grade(
+            question=assignment.description or assignment.title,
+            student_answer=submission.content,
+            rubric=getattr(assignment, 'rubric', '') or '',
+            max_score=float(assignment.max_score or 100),
+        )
+        if not ok:
+            return Response(result, status=status.HTTP_502_BAD_GATEWAY)
+
+        submission.ai_suggested_score = result.get('suggested_score')
+        submission.ai_feedback = result.get('feedback', '')
+        submission.ai_graded = True
+        submission.save(update_fields=['ai_suggested_score', 'ai_feedback', 'ai_graded'])
+
+        return Response({
+            **result,
+            'submission_id': submission.id,
+            'note': 'AI suggestion only — lecturer must approve the final grade.',
+        })
 
     @action(detail=True, methods=['get'])
     def submissions(self, request, pk=None):

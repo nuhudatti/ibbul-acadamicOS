@@ -1,7 +1,9 @@
 """
-Learning Engine API — live sync, gradebook (Learning app only).
+Learning Engine API — live sync, gradebook, grade sheet export (Learning app only).
 """
+import io
 from django.core.cache import cache
+from django.http import HttpResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -9,7 +11,7 @@ from rest_framework import status
 
 from apps.accounts.models import UserRole
 from .models import (
-    LMSOffering, Lesson, QuizAttempt, Submission, Enrollment, LessonProgress,
+    LMSOffering, Lesson, Quiz, QuizAttempt, Submission, Enrollment, LessonProgress,
 )
 
 QUIZ_WEIGHT = 40
@@ -31,6 +33,19 @@ def letter_grade(score: float) -> str:
     return 'F'
 
 
+def _best_quiz_attempt(quiz, student):
+    return (
+        QuizAttempt.objects.filter(
+            quiz=quiz,
+            student=student,
+            status__in=('submitted', 'timed_out'),
+            score__isnull=False,
+        )
+        .order_by('-score')
+        .first()
+    )
+
+
 def _student_quiz_average(student, offering):
     scores = []
     for lesson in Lesson.objects.filter(
@@ -38,13 +53,7 @@ def _student_quiz_average(student, offering):
     ).select_related('quiz'):
         if not hasattr(lesson, 'quiz'):
             continue
-        attempt = (
-            QuizAttempt.objects.filter(
-                quiz=lesson.quiz, student=student, status='submitted', score__isnull=False
-            )
-            .order_by('-score')
-            .first()
-        )
+        attempt = _best_quiz_attempt(lesson.quiz, student)
         if attempt:
             scores.append(float(attempt.score))
     if not scores:
@@ -92,9 +101,7 @@ def _module_breakdown(student, offering):
         asg_scores = []
         for lesson in mod.lessons.filter(is_published=True):
             if lesson.content_type == 'quiz' and hasattr(lesson, 'quiz'):
-                att = QuizAttempt.objects.filter(
-                    quiz=lesson.quiz, student=student, status='submitted', score__isnull=False
-                ).order_by('-score').first()
+                att = _best_quiz_attempt(lesson.quiz, student)
                 if att:
                     quiz_scores.append(float(att.score))
             elif lesson.content_type == 'assignment' and hasattr(lesson, 'assignment'):
@@ -214,3 +221,106 @@ def offering_gradebook(request, offering_id):
         'grade_bands': [{'min': t, 'grade': g} for t, g in GRADE_BANDS],
         'students': rows if (is_instructor or is_staff) else rows[:1],
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def export_grade_sheet(request, offering_id):
+    """
+    Export grade sheet as Excel for an offering.
+    GET /api/learning/offerings/{id}/grade-sheet/
+    """
+    try:
+        offering = LMSOffering.objects.select_related('course', 'instructor').get(pk=offering_id)
+    except LMSOffering.DoesNotExist:
+        return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    user = request.user
+    is_instructor = user.role == UserRole.EXAMINER and offering.instructor_id == user.id
+    is_staff = user.role in (
+        UserRole.DEPARTMENT_ADMIN, UserRole.HOD, UserRole.FACULTY_ADMIN, UserRole.SUPER_ADMIN
+    )
+    if not (is_instructor or is_staff):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    quiz_lessons = list(
+        Lesson.objects.filter(
+            module__offering=offering, content_type='quiz', is_published=True
+        ).select_related('quiz', 'module').order_by('module__order', 'order')
+    )
+    assignment_lessons = list(
+        Lesson.objects.filter(
+            module__offering=offering, content_type='assignment', is_published=True
+        ).select_related('assignment', 'module').order_by('module__order', 'order')
+    )
+
+    enrollments = Enrollment.objects.filter(
+        offering=offering, is_active=True
+    ).select_related('student').order_by('student__student_id')
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Grade Sheet'
+
+    headers = ['Matric', 'Student Name', 'Email']
+    for les in quiz_lessons:
+        headers.append(f'Quiz: {les.title[:40]}')
+    for les in assignment_lessons:
+        headers.append(f'Assignment: {les.title[:40]}')
+    headers.extend(['Quiz Avg %', 'Assignment Avg %', 'Final %', 'Grade'])
+
+    header_fill = PatternFill(start_color='0F6B3E', end_color='0F6B3E', fill_type='solid')
+    header_font = Font(bold=True, color='FFFFFF')
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+
+    row_idx = 2
+    for enr in enrollments:
+        st = enr.student
+        row = [
+            st.student_id or str(st.id),
+            st.get_full_name(),
+            st.email,
+        ]
+        for les in quiz_lessons:
+            att = _best_quiz_attempt(les.quiz, st) if hasattr(les, 'quiz') else None
+            row.append(float(att.score) if att and att.score is not None else '')
+        for les in assignment_lessons:
+            sub = None
+            if hasattr(les, 'assignment'):
+                sub = Submission.objects.filter(
+                    assignment=les.assignment, student=st, score__isnull=False
+                ).first()
+            if sub:
+                max_s = les.assignment.max_score or 100
+                row.append(round(float(sub.score) / max_s * 100, 2))
+            else:
+                row.append('')
+        q_avg = _student_quiz_average(st, offering)
+        a_avg = _student_assignment_average(st, offering)
+        final, letter = compute_final_grade(q_avg, a_avg)
+        row.extend([
+            q_avg if q_avg is not None else '',
+            a_avg if a_avg is not None else '',
+            final if final is not None else '',
+            letter or '',
+        ])
+        for col, val in enumerate(row, 1):
+            ws.cell(row=row_idx, column=col, value=val)
+        row_idx += 1
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f'{offering.course.code}_{offering.session}_grade_sheet.xlsx'
+    response = HttpResponse(
+        buf.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response

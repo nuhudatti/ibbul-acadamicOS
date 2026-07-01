@@ -10,7 +10,8 @@ import { learningAPI } from '@/lib/api'
 import { getLearningApiError } from '@/lib/learning-utils'
 import { cn } from '@/lib/utils'
 import { LButton } from '../learning-ui'
-import { useSecureInput } from './use-secure-input'
+import { useSecureInput, secureInputProps } from './use-secure-input'
+import { useSecureAssessment } from './use-secure-assessment'
 import type { QuizStudent, QuizAttempt } from '@/lib/types'
 
 type Phase = 'loading' | 'intro' | 'exam' | 'result' | 'blocked'
@@ -29,15 +30,24 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
   const [expiresAt, setExpiresAt] = useState<Date | null>(null)
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
   const [currentQ, setCurrentQ] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, number>>({})
+  const [answers, setAnswers] = useState<Record<string, number | string>>({})
   const [starting, setStarting] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ score: number; passed: boolean; passing_score: number } | null>(null)
   const [blockReason, setBlockReason] = useState<string | null>(null)
   const submittedRef = useRef(false)
+  const handleSubmitRef = useRef<(timedOut?: boolean, autoSubmitted?: boolean) => void>(() => {})
   const draftKey = `lms_quiz_draft_${quiz.id}`
 
-  useSecureInput(phase === 'exam' && !!attemptId)
+  const secureEnabled = phase === 'exam' && quiz.secure_mode_enabled !== false
+  const secure = useSecureAssessment({
+    enabled: secureEnabled,
+    quizId: quiz.id,
+    maxViolations: quiz.max_violations ?? 3,
+    onAutoSubmit: () => handleSubmitRef.current(true, true),
+  })
+
+  useSecureInput(secureEnabled && !!attemptId)
 
   const attemptsUsed = attempts.filter((a) => a.status !== 'in_progress').length
   const inProgress = attempts.find((a) => a.status === 'in_progress')
@@ -82,7 +92,7 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
     const tick = () => {
       const left = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
       setSecondsLeft(left)
-      if (left === 0 && !submittedRef.current) handleSubmit(true)
+      if (left === 0 && !submittedRef.current) handleSubmitRef.current(true, false)
     }
     tick()
     const id = setInterval(tick, 1000)
@@ -108,6 +118,9 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
           try { setAnswers(JSON.parse(saved)) } catch { /* ignore */ }
         }
         setPhase('exam')
+        if (quiz.secure_mode_enabled !== false) {
+          await secure.enterFullscreen()
+        }
         return
       }
 
@@ -122,6 +135,9 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
       }
       setCurrentQ(0)
       setPhase('exam')
+      if (quiz.secure_mode_enabled !== false) {
+        await secure.enterFullscreen()
+      }
     } catch (err) {
       toast.error(getLearningApiError(err, 'Could not start exam'))
     } finally {
@@ -129,26 +145,41 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
     }
   }
 
-  const handleSubmit = useCallback(async (timedOut = false) => {
+  const handleSubmit = useCallback(async (timedOut = false, autoSubmitted = false) => {
     if (submittedRef.current || submitting) return
     if (!timedOut) {
-      const unanswered = questions.filter((q) => answers[String(q.id)] === undefined)
+      const unanswered = questions.filter((q) => {
+        const val = answers[String(q.id)]
+        if (q.question_type === 'short_answer') {
+          return !String(val ?? '').trim()
+        }
+        return val === undefined
+      })
       if (unanswered.length) {
         toast.error(`Please answer all ${questions.length} questions before submitting`)
+        submittedRef.current = false
         return
       }
     }
     submittedRef.current = true
     setSubmitting(true)
     try {
-      const resp = await learningAPI.submitQuiz(quiz.id, { answers, focus_loss_count: 0 })
+      const resp = await learningAPI.submitQuiz(quiz.id, {
+        answers,
+        focus_loss_count: secure.violationCount,
+        violations: secure.violations,
+        timed_out: timedOut,
+        auto_submitted: autoSubmitted || secure.violationCount >= (quiz.max_violations ?? 3),
+      })
       setResult(resp.data)
       localStorage.removeItem(draftKey)
       setPhase('result')
       if (resp.data.passed) {
         onPassed?.()
-      } else if (timedOut) {
-        toast.error('Time expired — your answers were submitted')
+      } else if (timedOut || resp.data.timed_out) {
+        toast.info('Time expired — your answers were submitted and graded')
+      } else if (autoSubmitted) {
+        toast.info('Assessment submitted automatically due to security rules')
       }
     } catch {
       submittedRef.current = false
@@ -156,7 +187,11 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
     } finally {
       setSubmitting(false)
     }
-  }, [answers, questions, quiz.id, draftKey, onPassed, submitting])
+  }, [answers, questions, quiz.id, quiz.max_violations, draftKey, onPassed, submitting, secure.violationCount, secure.violations])
+
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit
+  }, [handleSubmit])
 
   if (phase === 'loading') {
     return (
@@ -237,7 +272,7 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
         </div>
 
         <p className="text-xs text-slate-500 mb-5 flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5" /> Secure mode — copy/paste disabled during the exam
+          <Shield className="w-3.5 h-3.5" /> Secure assessment — fullscreen, tab switches logged, copy/paste disabled
         </p>
 
         {questions.length === 0 ? (
@@ -306,7 +341,10 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6 p-4 rounded-xl bg-slate-900 text-white">
         <div className="flex items-center gap-2 text-sm">
           <Shield className="w-4 h-4 text-brand-400" />
-          <span>Exam in progress</span>
+          <span>Secure exam in progress</span>
+          {secure.violationCount > 0 && (
+            <span className="text-amber-400 text-xs">Warnings: {secure.violationCount}/{quiz.max_violations ?? 3}</span>
+          )}
         </div>
         {secondsLeft != null && quiz.time_limit_minutes && (
           <div className={cn(
@@ -322,6 +360,16 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm min-h-[280px]">
         <p className="text-lg font-medium text-slate-900 mb-6 leading-relaxed">{q.question_text}</p>
+        {q.question_type === 'short_answer' ? (
+          <textarea
+            value={String(answers[String(q.id)] ?? '')}
+            onChange={(e) => setAnswers((prev) => ({ ...prev, [String(q.id)]: e.target.value }))}
+            rows={5}
+            placeholder="Type your answer here…"
+            className="w-full rounded-xl border border-slate-200 p-4 text-sm text-slate-800 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 outline-none resize-y"
+            {...secureInputProps(secureEnabled)}
+          />
+        ) : (
         <div className="space-y-2">
           {(q.options ?? []).map((opt, oi) => (
             <label
@@ -344,6 +392,7 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
             </label>
           ))}
         </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between mt-6 gap-3">
@@ -371,7 +420,9 @@ export function ExamQuizEngine({ quiz, isInstructor = false, onPassed }: ExamQui
             className={cn(
               'w-8 h-8 rounded-lg text-xs font-semibold transition-colors',
               i === currentQ ? 'bg-brand-700 text-white' :
-              answers[String(questions[i].id)] !== undefined ? 'bg-emerald-100 text-emerald-700' :
+              answers[String(questions[i].id)] !== undefined &&
+              (questions[i].question_type !== 'short_answer' || String(answers[String(questions[i].id)] ?? '').trim())
+                ? 'bg-emerald-100 text-emerald-700' :
               'bg-slate-100 text-slate-500'
             )}
           >

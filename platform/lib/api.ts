@@ -702,8 +702,17 @@ export const learningAPI = {
   startQuiz: (quizId: number) =>
     api.post(`/learning/quizzes/${quizId}/start/`),
 
-  submitQuiz: (quizId: number, data: { answers: Record<string, number>; focus_loss_count: number }) =>
+  submitQuiz: (quizId: number, data: {
+    answers: Record<string, number | string>
+    focus_loss_count: number
+    violations?: Array<{ type: string; timestamp: string; metadata?: Record<string, unknown> }>
+    timed_out?: boolean
+    auto_submitted?: boolean
+  }) =>
     api.post(`/learning/quizzes/${quizId}/submit/`, data),
+
+  logQuizViolation: (quizId: number, data: { event_type: string; metadata?: Record<string, unknown> }) =>
+    api.post(`/learning/quizzes/${quizId}/log_violation/`, data),
 
   getMyAttempts: (quizId: number) =>
     api.get(`/learning/quizzes/${quizId}/my_attempts/`),
@@ -794,6 +803,12 @@ export const learningAPI = {
 
   getGradebook: (offeringId: number) =>
     api.get(`/learning/offerings/${offeringId}/gradebook/`),
+
+  exportGradeSheet: (offeringId: number) =>
+    api.get(`/learning/offerings/${offeringId}/grade-sheet/`, { responseType: 'blob' }),
+
+  aiSuggestGrade: (assignmentId: number, studentId: number) =>
+    api.post(`/learning/assignments/${assignmentId}/ai-suggest-grade/`, { student_id: studentId }),
 }
 
 export default api

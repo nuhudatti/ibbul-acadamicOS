@@ -16,16 +16,15 @@ from .models import (
 class QuizQuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuizQuestion
-        fields = ['id', 'quiz', 'question_text', 'options', 'correct_index',
-                  'explanation', 'points', 'order']
-        # correct_index is hidden from students in the read action (filtered in view)
+        fields = ['id', 'quiz', 'question_type', 'question_text', 'options', 'correct_index',
+                  'model_answer', 'explanation', 'points', 'order']
 
 
 class QuizQuestionStudentSerializer(serializers.ModelSerializer):
-    """Student-safe quiz question — no correct_index or explanation revealed."""
+    """Student-safe quiz question — no correct_index, model_answer, or explanation."""
     class Meta:
         model = QuizQuestion
-        fields = ['id', 'question_text', 'options', 'points', 'order']
+        fields = ['id', 'question_type', 'question_text', 'options', 'points', 'order']
 
 
 class QuizSerializer(serializers.ModelSerializer):
@@ -35,8 +34,9 @@ class QuizSerializer(serializers.ModelSerializer):
     class Meta:
         model = Quiz
         fields = ['id', 'lesson', 'title', 'instructions', 'passing_score', 'time_limit_minutes',
-                  'max_attempts', 'shuffle_questions', 'due_at', 'question_count', 'questions',
-                  'created_at', 'updated_at']
+                  'max_attempts', 'shuffle_questions', 'due_at', 'secure_mode_enabled',
+                  'max_violations', 'auto_submit_on_violations',
+                  'question_count', 'questions', 'created_at', 'updated_at']
 
     def get_question_count(self, obj):
         return obj.questions.count()
@@ -50,7 +50,8 @@ class QuizStudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Quiz
         fields = ['id', 'title', 'instructions', 'passing_score', 'time_limit_minutes',
-                  'max_attempts', 'due_at', 'question_count', 'questions']
+                  'max_attempts', 'due_at', 'secure_mode_enabled', 'max_violations',
+                  'auto_submit_on_violations', 'question_count', 'questions']
 
     def get_question_count(self, obj):
         return obj.questions.count()
@@ -60,7 +61,8 @@ class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         fields = ['id', 'lesson', 'title', 'description', 'instructions_key', 'max_score',
-                  'due_at', 'allow_late_submission', 'created_at', 'updated_at']
+                  'due_at', 'allow_late_submission', 'enable_ai_grading',
+                  'similarity_check_enabled', 'rubric', 'created_at', 'updated_at']
 
 
 class LessonSerializer(serializers.ModelSerializer):
@@ -262,7 +264,8 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'quiz', 'quiz_title', 'attempt_number', 'status',
             'started_at', 'submitted_at', 'expires_at', 'answers',
-            'score', 'passed', 'focus_loss_count', 'time_limit_minutes',
+            'score', 'passed', 'focus_loss_count', 'violation_log', 'auto_submitted',
+            'time_limit_minutes',
         ]
         read_only_fields = [
             'attempt_number', 'started_at', 'submitted_at', 'expires_at',
@@ -272,11 +275,17 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
 
 class QuizSubmitSerializer(serializers.Serializer):
     """Payload for submitting quiz answers."""
-    answers = serializers.DictField(
-        child=serializers.IntegerField(),
-        help_text='Dict: {question_id: selected_index}',
+    answers = serializers.JSONField(
+        help_text='Dict: {question_id: selected_index (int) or text (str)}',
     )
     focus_loss_count = serializers.IntegerField(default=0, min_value=0)
+    violations = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+    )
+    timed_out = serializers.BooleanField(required=False, default=False)
+    auto_submitted = serializers.BooleanField(required=False, default=False)
 
 
 # ─── Submission ───────────────────────────────────────────────────────────────
@@ -294,7 +303,8 @@ class SubmissionSerializer(serializers.ModelSerializer):
             'id', 'assignment', 'assignment_title', 'student_user_id', 'student_matric',
             'student_name', 'content', 'file_key',
             'submitted_at', 'is_late', 'score', 'graded_at',
-            'graded_by', 'graded_by_name', 'feedback', 'focus_loss_count',
+            'graded_by', 'graded_by_name', 'feedback', 'focus_loss_count', 'violation_log',
+            'similarity_score', 'similarity_report', 'ai_suggested_score', 'ai_feedback', 'ai_graded',
         ]
         read_only_fields = [
             'submitted_at', 'is_late', 'score', 'graded_at',

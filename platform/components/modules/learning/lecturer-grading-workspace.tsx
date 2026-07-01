@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ChevronDown, ChevronUp, ClipboardList, FileText, Loader2, Save,
+  ChevronDown, ChevronUp, ClipboardList, FileText, Loader2, Save, Download, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { learningAPI } from '@/lib/api'
@@ -60,6 +60,28 @@ export function LecturerGradingWorkspace({
     Record<number, Submission[]>
   >({})
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [exporting, setExporting] = useState(false)
+
+  const exportSheet = async () => {
+    setExporting(true)
+    try {
+      const resp = await learningAPI.exportGradeSheet(offeringId)
+      const blob = new Blob([resp.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `grade_sheet_offering_${offeringId}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Grade sheet downloaded')
+    } catch {
+      toast.error('Could not export grade sheet')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const assignments = useMemo(
     () => (offering ? collectAssignments(offering) : []),
@@ -119,9 +141,15 @@ export function LecturerGradingWorkspace({
             Tap a student to expand — view assignments, submissions, and save grades inline.
           </p>
         </div>
-        <span className="text-xs font-medium text-slate-400 shrink-0">
-          {students.length} enrolled
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <LButton variant="secondary" size="sm" onClick={exportSheet} disabled={exporting}>
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Export grade sheet
+          </LButton>
+          <span className="text-xs font-medium text-slate-400">
+            {students.length} enrolled
+          </span>
+        </div>
       </div>
 
       {students.map((student) => {
@@ -231,11 +259,31 @@ function AssignmentGradeRow({
   const [score, setScore] = useState(submission?.score ?? '')
   const [feedback, setFeedback] = useState(submission?.feedback ?? '')
   const [saving, setSaving] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
 
   useEffect(() => {
     setScore(submission?.score ?? '')
     setFeedback(submission?.feedback ?? '')
   }, [submission])
+
+  const suggestAi = async () => {
+    if (!submission) return
+    setAiLoading(true)
+    try {
+      const resp = await learningAPI.aiSuggestGrade(assignment.id, studentUserId)
+      if (resp.data.suggested_score != null) {
+        setScore(String(resp.data.suggested_score))
+      }
+      if (resp.data.feedback) {
+        setFeedback(resp.data.feedback)
+      }
+      toast.success('AI suggestion loaded — review and save the final grade')
+    } catch (err) {
+      toast.error(getLearningApiError(err, 'AI grading unavailable'))
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   const save = async () => {
     if (!submission) return
@@ -299,6 +347,17 @@ function AssignmentGradeRow({
             <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
               {submission.content || '(No written response — check attached file if any)'}
             </p>
+            {submission.similarity_report?.flagged && (
+              <p className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-2 py-1.5 mt-2">
+                Similarity warning: {(Number(submission.similarity_score) * 100).toFixed(0)}% match with another submission
+              </p>
+            )}
+            {submission.ai_graded && submission.ai_suggested_score != null && (
+              <p className="text-xs text-brand-700 bg-brand-50 border border-brand-100 rounded-lg px-2 py-1.5 mt-2">
+                AI suggested: {submission.ai_suggested_score}/{assignment.max_score}
+                {submission.ai_feedback ? ` — ${submission.ai_feedback.slice(0, 120)}` : ''}
+              </p>
+            )}
             {submission.file_key && (
               <p className="text-xs text-brand-700 mt-2 font-mono truncate">{submission.file_key}</p>
             )}
@@ -324,6 +383,10 @@ function AssignmentGradeRow({
               placeholder="Feedback (optional)"
               className="flex-1 h-9 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400"
             />
+            <LButton size="sm" variant="secondary" onClick={suggestAi} disabled={aiLoading} className="shrink-0">
+              {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              AI suggest
+            </LButton>
             <LButton size="sm" onClick={save} disabled={saving} className="shrink-0">
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               Save grade

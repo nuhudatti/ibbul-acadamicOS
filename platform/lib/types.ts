@@ -261,6 +261,9 @@ export interface QuizStudent {
   time_limit_minutes: number | null
   max_attempts: number
   due_at: string | null
+  secure_mode_enabled?: boolean
+  max_violations?: number
+  auto_submit_on_violations?: boolean
   question_count: number
   questions: QuizQuestionStudent[]
 }
@@ -271,6 +274,7 @@ export interface QuizInstructor extends Omit<QuizStudent, 'questions'> {
 
 export interface QuizQuestionStudent {
   id: number
+  question_type?: 'mcq' | 'short_answer'
   question_text: string
   options: string[]
   points: number
@@ -280,6 +284,7 @@ export interface QuizQuestionStudent {
 /** Instructor view includes correct answer */
 export interface QuizQuestionInstructor extends QuizQuestionStudent {
   correct_index: number
+  model_answer?: string
   explanation?: string
 }
 
@@ -292,7 +297,7 @@ export interface QuizAttempt {
   started_at: string
   submitted_at: string | null
   expires_at: string | null
-  answers: Record<string, number>
+  answers: Record<string, number | string>
   score: string | null
   passed: boolean | null
   focus_loss_count: number
@@ -326,6 +331,11 @@ export interface Submission {
   graded_by_name: string | null
   feedback: string
   focus_loss_count: number
+  similarity_score?: number | null
+  similarity_report?: { flagged?: boolean; highest_score?: number; matches?: unknown[] }
+  ai_suggested_score?: number | null
+  ai_feedback?: string
+  ai_graded?: boolean
 }
 
 export interface Enrollment {
