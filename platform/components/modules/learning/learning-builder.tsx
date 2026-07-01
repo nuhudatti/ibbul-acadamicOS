@@ -396,6 +396,8 @@ function StepRow({
               timeLimitMinutes={lesson.quiz.time_limit_minutes}
               maxAttempts={lesson.quiz.max_attempts}
               instructions={lesson.quiz.instructions}
+              secureModeEnabled={lesson.quiz.secure_mode_enabled ?? true}
+              maxViolations={lesson.quiz.max_violations ?? 3}
               initialQuestions={(lesson.quiz as { questions?: QuizQuestionInstructor[] }).questions ?? []}
               onRefresh={onRefresh}
             />

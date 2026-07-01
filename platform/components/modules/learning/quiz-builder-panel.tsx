@@ -14,6 +14,8 @@ interface QuizBuilderPanelProps {
   timeLimitMinutes?: number | null
   maxAttempts?: number
   instructions?: string
+  secureModeEnabled?: boolean
+  maxViolations?: number
   initialQuestions?: QuizQuestionInstructor[]
   onRefresh: () => void
 }
@@ -25,6 +27,8 @@ export function QuizBuilderPanel({
   timeLimitMinutes = null,
   maxAttempts = 3,
   instructions = '',
+  secureModeEnabled = true,
+  maxViolations = 3,
   initialQuestions = [],
   onRefresh,
 }: QuizBuilderPanelProps) {
@@ -39,8 +43,8 @@ export function QuizBuilderPanel({
     time_limit_minutes: timeLimitMinutes ?? '' as number | '',
     max_attempts: maxAttempts,
     instructions,
-    secure_mode_enabled: true,
-    max_violations: 3,
+    secure_mode_enabled: secureModeEnabled,
+    max_violations: maxViolations,
   })
   const [savingSettings, setSavingSettings] = useState(false)
 
@@ -49,13 +53,16 @@ export function QuizBuilderPanel({
   }, [initialQuestions])
 
   useEffect(() => {
-    setSettings({
+    setSettings((prev) => ({
+      ...prev,
       passing_score: passingScore,
       time_limit_minutes: timeLimitMinutes ?? '',
       max_attempts: maxAttempts,
       instructions,
-    })
-  }, [passingScore, timeLimitMinutes, maxAttempts, instructions])
+      secure_mode_enabled: secureModeEnabled,
+      max_violations: maxViolations,
+    }))
+  }, [passingScore, timeLimitMinutes, maxAttempts, instructions, secureModeEnabled, maxViolations])
 
   const saveSettings = async () => {
     setSavingSettings(true)
