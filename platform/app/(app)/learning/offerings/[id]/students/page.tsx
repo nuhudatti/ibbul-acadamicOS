@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
 
 import { learningAPI } from '@/lib/api'
+import { cachedGet } from '@/lib/fetch-cache'
 
 import {
 
@@ -77,19 +78,12 @@ export default function OfferingStudentsPage() {
     }
 
     Promise.all([
-
       learningAPI.getOfferingStudents(id),
-
-      learningAPI.getOfferingDetail(id),
-
+      cachedGet(`offering-detail:${id}`, () => learningAPI.getOfferingDetail(id).then((r) => r.data), 60_000),
     ])
-
-      .then(([studResp, offResp]) => {
-
+      .then(([studResp, offDetail]) => {
         setStudents(studResp.data.students ?? [])
-
-        setCourseCode(offResp.data.course_code ?? '')
-
+        setCourseCode(offDetail.course_code ?? '')
       })
 
       .catch(() => toast.error('Failed to load students'))

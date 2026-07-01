@@ -257,12 +257,21 @@ class LMSOfferingViewSet(viewsets.ModelViewSet):
             module__offering=offering, is_published=True
         ).count()
 
-        def _progress_for(student):
-            completed = LessonProgress.objects.filter(
+        enrollment_student_ids = list(
+            offering.enrollments.filter(is_active=True).values_list('student_id', flat=True)
+        )
+        progress_map = {}
+        if enrollment_student_ids and total_lessons:
+            from django.db.models import Count
+            for row in LessonProgress.objects.filter(
                 lesson__module__offering=offering,
-                student=student,
+                student_id__in=enrollment_student_ids,
                 completed=True,
-            ).count()
+            ).values('student_id').annotate(c=Count('id')):
+                progress_map[row['student_id']] = row['c']
+
+        def _progress_for(student):
+            completed = progress_map.get(student.id, 0)
             return (
                 round((completed / total_lessons) * 100, 1) if total_lessons else 0,
                 completed,
@@ -1144,6 +1153,9 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             submission.similarity_report = report
             submission.save(update_fields=['similarity_score', 'similarity_report'])
 
+        from .cache_utils import invalidate_offering_cache_from_assignment
+        invalidate_offering_cache_from_assignment(assignment)
+
         serializer = SubmissionSerializer(submission)
         status_code = status.HTTP_200_OK if was_resubmit else status.HTTP_201_CREATED
         return Response(serializer.data, status=status_code)
@@ -1180,6 +1192,9 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         submission.graded_at = timezone.now()
         submission.graded_by = request.user
         submission.save(update_fields=['score', 'feedback', 'graded_at', 'graded_by'])
+
+        from .cache_utils import invalidate_offering_cache_from_assignment
+        invalidate_offering_cache_from_assignment(assignment)
 
         serializer = SubmissionSerializer(submission)
         return Response(serializer.data)
@@ -1236,22 +1251,60 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         if assignment.lesson.module.offering.instructor_id != request.user.id and request.user.role == UserRole.EXAMINER:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
-        subs = assignment.submissions.filter(score__isnull=True).exclude(content='')
+        subs_qs = assignment.submissions.filter(score__isnull=True).exclude(content='')
+        total_pending = subs_qs.count()
+        use_background = request.query_params.get('sync') != '1'
+
+        if use_background and total_pending > 0:
+            from .tasks import create_job, enqueue_ai_bulk
+            job_id = create_job('ai_bulk', total=total_pending)
+            enqueue_ai_bulk(job_id, assignment.id)
+            return Response({
+                'job_id': job_id,
+                'status': 'queued',
+                'processed': 0,
+                'total_pending': total_pending,
+                'background': True,
+                'note': 'Poll bulk-ai-job status endpoint for progress.',
+            }, status=status.HTTP_202_ACCEPTED)
+
         processed = 0
         errors = []
-        for sub in subs:
+        for sub in subs_qs.select_related('student'):
             ok, result = _run_ai_suggestion(assignment, sub)
             if ok:
                 processed += 1
             else:
                 errors.append({'student_id': sub.student_id, 'error': result.get('error', 'failed')})
 
+        from .cache_utils import invalidate_offering_cache_from_assignment
+        invalidate_offering_cache_from_assignment(assignment)
+
         return Response({
             'processed': processed,
-            'total_pending': subs.count(),
+            'total_pending': total_pending,
             'errors': errors,
+            'background': False,
             'note': 'Review AI suggestions and save final grades individually or in bulk.',
         })
+
+    @action(detail=True, methods=['get'], url_path=r'bulk-ai-job/(?P<job_id>[0-9a-f-]+)')
+    def bulk_ai_job(self, request, pk=None, job_id=None):
+        """Poll background AI bulk grading job."""
+        from .tasks import get_job
+        job = get_job(job_id)
+        if not job:
+            return Response({'detail': 'Job not found.'}, status=status.HTTP_404_NOT_FOUND)
+        payload = {
+            'job_id': job_id,
+            'status': job.get('status'),
+            'processed': job.get('processed', 0),
+            'total': job.get('total', 0),
+            'error': job.get('error'),
+        }
+        if job.get('status') == 'complete' and job.get('result'):
+            payload.update(job['result'])
+        return Response(payload)
 
     @action(detail=True, methods=['get'])
     def submissions(self, request, pk=None):
@@ -1315,23 +1368,25 @@ def learning_dashboard_stats(request):
 
     if user.role == UserRole.STUDENT:
         enrollments = Enrollment.objects.filter(student=user, is_active=True)
+        offering_ids = list(enrollments.values_list('offering', flat=True))
         total_lessons = Lesson.objects.filter(
-            module__offering__in=enrollments.values_list('offering', flat=True),
+            module__offering__in=offering_ids,
             is_published=True,
-        ).count()
+        ).count() if offering_ids else 0
         completed_lessons = LessonProgress.objects.filter(
-            student=user, completed=True
-        ).count()
+            student=user, completed=True,
+            lesson__module__offering__in=offering_ids,
+        ).count() if offering_ids else 0
         pending_quizzes = Quiz.objects.filter(
-            lesson__module__offering__in=enrollments.values_list('offering', flat=True),
+            lesson__module__offering__in=offering_ids,
         ).exclude(
             attempts__student=user, attempts__status='submitted'
-        ).count()
+        ).count() if offering_ids else 0
         pending_assignments = Assignment.objects.filter(
-            lesson__module__offering__in=enrollments.values_list('offering', flat=True),
+            lesson__module__offering__in=offering_ids,
         ).exclude(
             submissions__student=user
-        ).count()
+        ).count() if offering_ids else 0
 
         return Response({
             'enrolled_courses': enrollments.count(),

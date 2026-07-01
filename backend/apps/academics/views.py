@@ -144,9 +144,13 @@ class ResultViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         if user.role == UserRole.STUDENT:
-            return Result.objects.filter(student=user, is_deleted=False)
+            return Result.objects.filter(student=user, is_deleted=False).select_related(
+                'student', 'course', 'department', 'uploaded_by', 'approved_by', 'locked_by', 'upload_batch',
+            )
 
-        qs = Result.objects.filter(is_deleted=False)
+        qs = Result.objects.filter(is_deleted=False).select_related(
+            'student', 'course', 'department', 'uploaded_by', 'approved_by', 'locked_by', 'upload_batch',
+        )
         scope = getattr(self.request, 'scope', None) or build_scope(user)
         if scope and scope.level < ScopeLevel.GLOBAL:
             qs = filter_by_scope(qs, user, self.request)

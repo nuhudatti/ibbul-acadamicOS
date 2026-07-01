@@ -107,6 +107,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+if os.getenv('PERF_LOG_SLOW', '').strip() in ('1', 'true', 'yes'):
+    MIDDLEWARE.append('common.middleware.performance.SlowRequestLoggingMiddleware')
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [

@@ -810,14 +810,66 @@ export const learningAPI = {
   getGradebook: (offeringId: number) =>
     api.get(`/learning/offerings/${offeringId}/gradebook/`),
 
+  getGradingWorkspace: (offeringId: number) =>
+    api.get<{
+      summary: {
+        total_students: number
+        submitted_assignments: number
+        missing_assignments: number
+        average_quiz_score: number | null
+        average_assignment_score: number | null
+        similarity_flagged: number
+        ai_awaiting_approval: number
+      }
+      gradebook: import('@/lib/learning-grading').GradebookResponse
+      assignments: Array<{
+        id: number
+        title: string
+        max_score: number
+        module_title: string
+        enable_ai_grading?: boolean
+      }>
+      submissions_by_assignment: Record<string, import('@/lib/types').Submission[]>
+      offering: import('@/lib/types').LMSOfferingDetail
+    }>(`/learning/offerings/${offeringId}/grading-workspace/`),
+
   exportGradeSheet: (offeringId: number) =>
     api.get(`/learning/offerings/${offeringId}/grade-sheet/`, { responseType: 'blob' }),
+
+  startExportGradeSheet: (offeringId: number) =>
+    api.post<{ job_id: string; status: string }>(`/learning/offerings/${offeringId}/grade-sheet/start/`),
+
+  pollExportGradeSheetJob: (offeringId: number, jobId: string) =>
+    api.get<{
+      job_id: string
+      status: string
+      processed: number
+      total: number
+      error?: string
+      download?: { data_base64: string; filename?: string }
+    }>(`/learning/offerings/${offeringId}/grade-sheet/job/${jobId}/`),
 
   aiSuggestGrade: (assignmentId: number, studentId: number) =>
     api.post(`/learning/assignments/${assignmentId}/ai-suggest-grade/`, { student_id: studentId }),
 
   aiSuggestGradeBulk: (assignmentId: number) =>
-    api.post(`/learning/assignments/${assignmentId}/ai-suggest-grade-bulk/`),
+    api.post<{
+      job_id?: string
+      status?: string
+      processed?: number
+      total_pending?: number
+      background?: boolean
+    }>(`/learning/assignments/${assignmentId}/ai-suggest-grade-bulk/`),
+
+  pollAiBulkJob: (assignmentId: number, jobId: string) =>
+    api.get<{
+      job_id: string
+      status: string
+      processed: number
+      total: number
+      error?: string
+      total_pending?: number
+    }>(`/learning/assignments/${assignmentId}/bulk-ai-job/${jobId}/`),
 
   getGradingSummary: (offeringId: number) =>
     api.get<{

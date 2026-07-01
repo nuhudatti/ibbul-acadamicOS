@@ -13,6 +13,8 @@ from apps.accounts.models import UserRole
 from .models import (
     LMSOffering, Lesson, Quiz, QuizAttempt, Submission, Enrollment, LessonProgress,
 )
+from .grade_data import OfferingGradeData
+from .serializers import SubmissionSerializer
 
 QUIZ_WEIGHT = 40
 ASSIGNMENT_WEIGHT = 60
@@ -46,7 +48,9 @@ def _best_quiz_attempt(quiz, student):
     )
 
 
-def _student_quiz_average(student, offering):
+def _student_quiz_average(student, offering, grade_data: OfferingGradeData | None = None):
+    if grade_data:
+        return grade_data.quiz_average(student.id)
     scores = []
     for lesson in Lesson.objects.filter(
         module__offering=offering, content_type='quiz', is_published=True
@@ -61,7 +65,9 @@ def _student_quiz_average(student, offering):
     return round(sum(scores) / len(scores), 2)
 
 
-def _student_assignment_average(student, offering):
+def _student_assignment_average(student, offering, grade_data: OfferingGradeData | None = None):
+    if grade_data:
+        return grade_data.assignment_average(student.id)
     scores = []
     for lesson in Lesson.objects.filter(
         module__offering=offering, content_type='assignment', is_published=True
@@ -94,7 +100,9 @@ def compute_final_grade(quiz_avg, assignment_avg):
     return final, letter_grade(final)
 
 
-def _module_breakdown(student, offering):
+def _module_breakdown(student, offering, grade_data: OfferingGradeData | None = None):
+    if grade_data:
+        return grade_data.module_breakdown(student.id, compute_final_grade)
     modules = []
     for mod in offering.modules.filter(is_published=True).order_by('order'):
         quiz_scores = []
@@ -188,19 +196,22 @@ def offering_gradebook(request, offering_id):
 
     if user.role == UserRole.STUDENT:
         students = [user]
+        student_ids = [user.id]
     elif is_instructor or is_staff:
-        students = [
-            e.student for e in Enrollment.objects.filter(
-                offering=offering, is_active=True
-            ).select_related('student')
-        ]
+        enrollments = list(
+            Enrollment.objects.filter(offering=offering, is_active=True).select_related('student')
+        )
+        students = [e.student for e in enrollments]
+        student_ids = [e.student_id for e in enrollments]
     else:
         return Response(status=status.HTTP_403_FORBIDDEN)
 
+    grade_data = OfferingGradeData.load(offering, student_ids)
+
     rows = []
     for st in students:
-        q_avg = _student_quiz_average(st, offering)
-        a_avg = _student_assignment_average(st, offering)
+        q_avg = grade_data.quiz_average(st.id)
+        a_avg = grade_data.assignment_average(st.id)
         final, letter = compute_final_grade(q_avg, a_avg)
         rows.append({
             'student_id': st.student_id or str(st.id),
@@ -211,7 +222,7 @@ def offering_gradebook(request, offering_id):
             'assignment_weight': ASSIGNMENT_WEIGHT,
             'final_score': final,
             'letter_grade': letter,
-            'modules': _module_breakdown(st, offering),
+            'modules': grade_data.module_breakdown(st.id, compute_final_grade),
         })
 
     return Response({
@@ -223,8 +234,9 @@ def offering_gradebook(request, offering_id):
     })
 
 
-def _quiz_security_stats(student, offering):
-    """Aggregate secure-mode events from quiz attempts in this offering."""
+def _quiz_security_stats(student, offering, grade_data: OfferingGradeData | None = None):
+    if grade_data:
+        return grade_data.security_stats.get(student.id, (0, 0, 0))
     total_violations = 0
     fullscreen_exits = 0
     tab_switches = 0
@@ -280,50 +292,17 @@ def offering_grading_summary(request, offering_id):
     if not _can_manage_offering(request.user, offering):
         return Response(status=status.HTTP_403_FORBIDDEN)
 
+    cache_key = f'lms_grading_summary_{offering_id}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
+
     enrollments = Enrollment.objects.filter(offering=offering, is_active=True).select_related('student')
-    total_students = enrollments.count()
-    student_ids = [e.student_id for e in enrollments]
-
-    assignment_lessons = Lesson.objects.filter(
-        module__offering=offering, content_type='assignment', is_published=True
-    ).select_related('assignment')
-
-    total_assignment_slots = total_students * assignment_lessons.count()
-    submissions = Submission.objects.filter(
-        assignment__lesson__module__offering=offering,
-        student_id__in=student_ids,
-    )
-    submitted_count = submissions.count()
-    missing = max(0, total_assignment_slots - submitted_count)
-
-    quiz_avgs = []
-    assignment_avgs = []
-    for enr in enrollments:
-        q = _student_quiz_average(enr.student, offering)
-        a = _student_assignment_average(enr.student, offering)
-        if q is not None:
-            quiz_avgs.append(q)
-        if a is not None:
-            assignment_avgs.append(a)
-
-    similarity_flagged = submissions.filter(similarity_report__flagged=True).count()
-    if similarity_flagged == 0:
-        similarity_flagged = sum(
-            1 for s in submissions
-            if s.similarity_score and float(s.similarity_score) >= 0.85
-        )
-
-    ai_awaiting = submissions.filter(ai_graded=True, score__isnull=True).count()
-
-    return Response({
-        'total_students': total_students,
-        'submitted_assignments': submitted_count,
-        'missing_assignments': missing,
-        'average_quiz_score': round(sum(quiz_avgs) / len(quiz_avgs), 1) if quiz_avgs else None,
-        'average_assignment_score': round(sum(assignment_avgs) / len(assignment_avgs), 1) if assignment_avgs else None,
-        'similarity_flagged': similarity_flagged,
-        'ai_awaiting_approval': ai_awaiting,
-    })
+    student_ids = list(enrollments.values_list('student_id', flat=True))
+    grade_data = OfferingGradeData.load(offering, student_ids)
+    payload = grade_data.grading_summary_stats()
+    cache.set(cache_key, payload, timeout=60)
+    return Response(payload)
 
 
 @api_view(['GET'])
@@ -367,6 +346,8 @@ def export_grade_sheet(request, offering_id):
         .select_related('student')
         .order_by('student__student_id')
     )
+    student_ids = [e.student_id for e in enrollments]
+    grade_data = OfferingGradeData.load(offering, student_ids)
 
     course = offering.course
     dept = course.department
@@ -410,8 +391,8 @@ def export_grade_sheet(request, offering_id):
     row_idx = header_row + 1
     for enr in enrollments:
         st = enr.student
-        q_avg = _student_quiz_average(st, offering)
-        violations, fs_exits, tab_sw = _quiz_security_stats(st, offering)
+        q_avg = grade_data.quiz_average(st.id)
+        violations, fs_exits, tab_sw = grade_data.security_stats.get(st.id, (0, 0, 0))
         program = getattr(st, 'department_name', None) or st.department or dept_name
 
         row = [
@@ -428,7 +409,7 @@ def export_grade_sheet(request, offering_id):
         for les in assignment_lessons:
             sub = None
             if hasattr(les, 'assignment'):
-                sub = Submission.objects.filter(assignment=les.assignment, student=st).first()
+                sub = grade_data.submissions.get((st.id, les.assignment_id))
             if sub and sub.score is not None:
                 row.append(float(sub.score))
             elif sub:
@@ -469,3 +450,125 @@ def export_grade_sheet(request, offering_id):
     )
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def offering_grading_workspace(request, offering_id):
+    """
+    Combined payload for lecturer grading UI — one round trip instead of 3+N.
+    GET /api/learning/offerings/{id}/grading-workspace/
+    """
+    try:
+        offering = LMSOffering.objects.select_related(
+            'course', 'course__department', 'instructor'
+        ).prefetch_related(
+            'modules__lessons__assignment',
+            'modules__lessons__quiz',
+        ).get(pk=offering_id)
+    except LMSOffering.DoesNotExist:
+        return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if not _can_manage_offering(request.user, offering):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+
+    enrollments = Enrollment.objects.filter(offering=offering, is_active=True).select_related('student')
+    student_ids = list(enrollments.values_list('student_id', flat=True))
+    grade_data = OfferingGradeData.load(offering, student_ids)
+
+    rows = []
+    for enr in enrollments:
+        st = enr.student
+        q_avg = grade_data.quiz_average(st.id)
+        a_avg = grade_data.assignment_average(st.id)
+        final, letter = compute_final_grade(q_avg, a_avg)
+        rows.append({
+            'student_id': st.student_id or str(st.id),
+            'full_name': st.get_full_name(),
+            'quiz_average': q_avg,
+            'assignment_average': a_avg,
+            'quiz_weight': QUIZ_WEIGHT,
+            'assignment_weight': ASSIGNMENT_WEIGHT,
+            'final_score': final,
+            'letter_grade': letter,
+        })
+
+    subs_by_assignment = {}
+    for assignment_id, subs in grade_data.submissions_by_assignment().items():
+        subs_by_assignment[str(assignment_id)] = SubmissionSerializer(subs, many=True).data
+
+    assignments_meta = []
+    for les in grade_data.assignment_lessons:
+        if hasattr(les, 'assignment'):
+            a = les.assignment
+            assignments_meta.append({
+                'id': a.id,
+                'title': a.title,
+                'max_score': a.max_score or 100,
+                'module_title': les.module.title if les.module_id else '',
+                'enable_ai_grading': getattr(a, 'enable_ai_grading', False),
+            })
+
+    from .serializers import LMSOfferingDetailSerializer
+    offering_detail = LMSOfferingDetailSerializer(offering, context={'request': request}).data
+
+    return Response({
+        'summary': grade_data.grading_summary_stats(),
+        'gradebook': {
+            'offering_id': offering.id,
+            'course_code': offering.course.code,
+            'weights': {'quiz': QUIZ_WEIGHT, 'assignment': ASSIGNMENT_WEIGHT},
+            'grade_bands': [{'min': t, 'grade': g} for t, g in GRADE_BANDS],
+            'students': rows,
+        },
+        'assignments': assignments_meta,
+        'submissions_by_assignment': subs_by_assignment,
+        'offering': offering_detail,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def start_export_grade_sheet(request, offering_id):
+    """Queue Excel grade sheet generation — returns job_id for polling."""
+    try:
+        offering = LMSOffering.objects.select_related('course').get(pk=offering_id)
+    except LMSOffering.DoesNotExist:
+        return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if not _can_manage_offering(request.user, offering):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+
+    from .tasks import create_job, enqueue_export
+    job_id = create_job('export', total=1)
+    enqueue_export(job_id, offering_id, request.user.id)
+    return Response({'job_id': job_id, 'status': 'queued'}, status=status.HTTP_202_ACCEPTED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def export_grade_sheet_job(request, offering_id, job_id):
+    """Poll export job — when complete, returns base64 workbook."""
+    try:
+        offering = LMSOffering.objects.get(pk=offering_id)
+    except LMSOffering.DoesNotExist:
+        return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if not _can_manage_offering(request.user, offering):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+
+    from .tasks import get_job
+    job = get_job(job_id)
+    if not job:
+        return Response({'detail': 'Job not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    payload = {
+        'job_id': job_id,
+        'status': job.get('status'),
+        'processed': job.get('processed', 0),
+        'total': job.get('total', 1),
+        'error': job.get('error'),
+    }
+    if job.get('status') == 'complete' and job.get('result'):
+        payload['download'] = job['result']
+    return Response(payload)

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { learningAPI } from '@/lib/api'
+import { cachedGet, invalidateCacheKey } from '@/lib/fetch-cache'
 import { getLearningApiError } from '@/lib/learning-utils'
 import { gradeColor, type GradebookResponse } from '@/lib/learning-grading'
 import { LCard, LButton, LProgressRing, LSkeleton } from './learning-ui'
@@ -30,22 +31,8 @@ interface AssignmentMeta {
   enable_ai_grading?: boolean
 }
 
-function collectAssignments(offering: LMSOfferingDetail): AssignmentMeta[] {
-  const items: AssignmentMeta[] = []
-  for (const mod of offering.modules ?? []) {
-    for (const lesson of mod.lessons ?? []) {
-      if (lesson.content_type === 'assignment' && lesson.assignment) {
-        items.push({
-          id: lesson.assignment.id,
-          title: lesson.assignment.title,
-          max_score: lesson.assignment.max_score || 100,
-          moduleTitle: mod.title,
-          enable_ai_grading: lesson.assignment.enable_ai_grading,
-        })
-      }
-    }
-  }
-  return items
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
 export function LecturerGradingWorkspace({
@@ -55,7 +42,7 @@ export function LecturerGradingWorkspace({
   offeringId: number
   students: StudentRow[]
 }) {
-  const [loading, setLoading] = useState(true)
+  const [coreLoading, setCoreLoading] = useState(true)
   const [offering, setOffering] = useState<LMSOfferingDetail | null>(null)
   const [gradebook, setGradebook] = useState<GradebookResponse | null>(null)
   const [submissionsByAssignment, setSubmissionsByAssignment] = useState<
@@ -63,6 +50,7 @@ export function LecturerGradingWorkspace({
   >({})
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [exportStatus, setExportStatus] = useState('')
   const [summary, setSummary] = useState<{
     total_students: number
     submitted_assignments: number
@@ -73,85 +61,172 @@ export function LecturerGradingWorkspace({
     ai_awaiting_approval: number
   } | null>(null)
   const [bulkAiLoading, setBulkAiLoading] = useState<number | null>(null)
+  const [bulkAiProgress, setBulkAiProgress] = useState('')
+
+  const assignments = useMemo((): AssignmentMeta[] => {
+    if (offering) {
+      const items: AssignmentMeta[] = []
+      for (const mod of offering.modules ?? []) {
+        for (const lesson of mod.lessons ?? []) {
+          if (lesson.content_type === 'assignment' && lesson.assignment) {
+            items.push({
+              id: lesson.assignment.id,
+              title: lesson.assignment.title,
+              max_score: lesson.assignment.max_score || 100,
+              moduleTitle: mod.title,
+              enable_ai_grading: lesson.assignment.enable_ai_grading,
+            })
+          }
+        }
+      }
+      return items
+    }
+    return []
+  }, [offering])
+
+  const applyWorkspacePayload = useCallback((data: Awaited<ReturnType<typeof learningAPI.getGradingWorkspace>>['data']) => {
+    setOffering(data.offering)
+    setGradebook(data.gradebook)
+    setSummary(data.summary)
+    const map: Record<number, Submission[]> = {}
+    for (const [aid, subs] of Object.entries(data.submissions_by_assignment ?? {})) {
+      map[Number(aid)] = subs as Submission[]
+    }
+    setSubmissionsByAssignment(map)
+  }, [])
+
+  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (!opts?.quiet) setCoreLoading(true)
+    try {
+      invalidateCacheKey(`grading-workspace:${offeringId}`)
+      const resp = await cachedGet(
+        `grading-workspace:${offeringId}`,
+        () => learningAPI.getGradingWorkspace(offeringId).then((r) => r.data),
+        15_000,
+      )
+      applyWorkspacePayload(resp)
+    } catch {
+      if (!opts?.quiet) toast.error('Failed to load grading data')
+    } finally {
+      if (!opts?.quiet) setCoreLoading(false)
+    }
+  }, [offeringId, applyWorkspacePayload])
+
+  useEffect(() => { load() }, [load])
+
+  const patchAfterGrade = useCallback((
+    assignmentId: number,
+    studentUserId: number,
+    score: number,
+    feedback: string,
+  ) => {
+    setSubmissionsByAssignment((prev) => {
+      const list = prev[assignmentId] ?? []
+      return {
+        ...prev,
+        [assignmentId]: list.map((s) =>
+          s.student_user_id === studentUserId
+            ? { ...s, score: String(score), feedback, graded_at: new Date().toISOString() }
+            : s,
+        ),
+      }
+    })
+    if (summary && summary.ai_awaiting_approval > 0) {
+      setSummary({ ...summary, ai_awaiting_approval: Math.max(0, summary.ai_awaiting_approval - 1) })
+    }
+  }, [summary])
 
   const exportSheet = async () => {
     setExporting(true)
+    setExportStatus('Preparing export…')
     try {
-      const resp = await learningAPI.exportGradeSheet(offeringId)
-      const blob = new Blob([resp.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `grade_sheet_offering_${offeringId}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
-      toast.success('Grade sheet downloaded')
-    } catch {
-      toast.error('Could not export grade sheet')
+      const start = await learningAPI.startExportGradeSheet(offeringId)
+      const jobId = start.data.job_id
+      for (let i = 0; i < 120; i++) {
+        await sleep(1500)
+        const poll = await learningAPI.pollExportGradeSheetJob(offeringId, jobId)
+        if (poll.data.status === 'running' || poll.data.status === 'queued') {
+          setExportStatus('Preparing export…')
+          continue
+        }
+        if (poll.data.status === 'failed') {
+          throw new Error(poll.data.error || 'Export failed')
+        }
+        if (poll.data.status === 'complete' && poll.data.download?.data_base64) {
+          const raw = atob(poll.data.download.data_base64)
+          const bytes = new Uint8Array(raw.length)
+          for (let j = 0; j < raw.length; j++) bytes[j] = raw.charCodeAt(j)
+          const blob = new Blob([bytes], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `grade_sheet_offering_${offeringId}.xlsx`
+          a.click()
+          URL.revokeObjectURL(url)
+          setExportStatus('')
+          toast.success('Grade sheet downloaded')
+          return
+        }
+      }
+      throw new Error('Export timed out')
+    } catch (err) {
+      setExportStatus('')
+      toast.error(err instanceof Error ? err.message : 'Could not export grade sheet')
     } finally {
       setExporting(false)
     }
   }
 
-  const assignments = useMemo(
-    () => (offering ? collectAssignments(offering) : []),
-    [offering]
-  )
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [offResp, gbResp, sumResp] = await Promise.all([
-        learningAPI.getOfferingDetail(offeringId),
-        learningAPI.getGradebook(offeringId),
-        learningAPI.getGradingSummary(offeringId),
-      ])
-      const detail = offResp.data as LMSOfferingDetail
-      setOffering(detail)
-      setGradebook(gbResp.data)
-      setSummary(sumResp.data)
-
-      const assignmentList = collectAssignments(detail)
-      const subResults = await Promise.allSettled(
-        assignmentList.map((a) => learningAPI.getSubmissions(a.id))
-      )
-      const map: Record<number, Submission[]> = {}
-      assignmentList.forEach((a, i) => {
-        const r = subResults[i]
-        map[a.id] = r.status === 'fulfilled' ? r.value.data.submissions ?? [] : []
-      })
-      setSubmissionsByAssignment(map)
-    } catch {
-      toast.error('Failed to load grading data')
-    } finally {
-      setLoading(false)
-    }
-  }, [offeringId])
-
-  useEffect(() => { load() }, [load])
-
   const runBulkAi = async (assignmentId: number) => {
     setBulkAiLoading(assignmentId)
+    setBulkAiProgress('Starting…')
     try {
       const resp = await learningAPI.aiSuggestGradeBulk(assignmentId)
-      toast.success(`AI processed ${resp.data.processed} submission(s) — review and approve grades`)
-      load()
+      if (resp.data.background && resp.data.job_id) {
+        const jobId = resp.data.job_id
+        const total = resp.data.total_pending ?? 0
+        for (let i = 0; i < 600; i++) {
+          await sleep(2000)
+          const poll = await learningAPI.pollAiBulkJob(assignmentId, jobId)
+          const done = poll.data.processed ?? 0
+          const tot = poll.data.total || total
+          setBulkAiProgress(`Grading ${done} / ${tot}…`)
+          if (poll.data.status === 'complete') {
+            toast.success(`AI processed ${poll.data.processed ?? done} submission(s) — review and approve grades`)
+            load({ quiet: true })
+            break
+          }
+          if (poll.data.status === 'failed') {
+            throw new Error(poll.data.error || 'Bulk AI failed')
+          }
+        }
+      } else {
+        toast.success(`AI processed ${resp.data.processed ?? 0} submission(s) — review and approve grades`)
+        load({ quiet: true })
+      }
     } catch (err) {
       toast.error(getLearningApiError(err, 'Bulk AI grading failed'))
     } finally {
       setBulkAiLoading(null)
+      setBulkAiProgress('')
     }
   }
 
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 3 }).map((_, i) => <LSkeleton key={i} className="h-16" />)}
-      </div>
-    )
-  }
+  const pendingByStudent = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const student of students) {
+      let pending = 0
+      for (const a of assignments) {
+        const subs = submissionsByAssignment[a.id] ?? []
+        const sub = subs.find((s) => s.student_user_id === student.user_id)
+        if (sub && sub.score == null) pending += 1
+      }
+      map.set(student.user_id, pending)
+    }
+    return map
+  }, [students, assignments, submissionsByAssignment])
 
   if (students.length === 0) return null
 
@@ -161,7 +236,13 @@ export function LecturerGradingWorkspace({
 
   return (
     <div className="space-y-4">
-      {summary && (
+      {coreLoading && !summary ? (
+        <LCard className="!p-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {Array.from({ length: 6 }).map((_, i) => <LSkeleton key={i} className="h-16" />)}
+          </div>
+        </LCard>
+      ) : summary ? (
         <LCard className="!p-5 bg-gradient-to-br from-brand-50/50 to-white border-brand-100">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-700 mb-3">Course summary</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -178,13 +259,18 @@ export function LecturerGradingWorkspace({
             </p>
           )}
         </LCard>
-      )}
+      ) : null}
 
-      {assignments.length > 0 && (
+      {(assignments.length > 0 || coreLoading) && (
         <LCard className="!p-4">
           <p className="text-xs font-semibold text-slate-700 mb-3 flex items-center gap-1">
             <Sparkles className="w-4 h-4 text-brand-600" /> AI grading (bulk)
           </p>
+          {bulkAiProgress && (
+            <p className="text-xs text-brand-700 mb-2 flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> {bulkAiProgress}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {assignments.filter((a) => a.enable_ai_grading).map((a) => (
               <LButton
@@ -202,7 +288,7 @@ export function LecturerGradingWorkspace({
                 AI suggest all — {a.title}
               </LButton>
             ))}
-            {assignments.every((a) => !a.enable_ai_grading) && (
+            {!coreLoading && assignments.every((a) => !a.enable_ai_grading) && (
               <p className="text-xs text-slate-500">Enable AI grading in the assignment builder to use bulk suggestions.</p>
             )}
           </div>
@@ -216,11 +302,12 @@ export function LecturerGradingWorkspace({
             Tap a student to expand — view assignments, submissions, and save grades inline.
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-col items-end gap-1 shrink-0">
           <LButton variant="secondary" size="sm" onClick={exportSheet} disabled={exporting}>
             {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             Export grade sheet
           </LButton>
+          {exportStatus && <span className="text-[10px] text-slate-500">{exportStatus}</span>}
           <span className="text-xs font-medium text-slate-400">
             {students.length} enrolled
           </span>
@@ -230,11 +317,7 @@ export function LecturerGradingWorkspace({
       {students.map((student) => {
         const open = expandedId === student.user_id
         const grades = gradeByMatric.get(student.student_id)
-        const pending = assignments.filter((a) => {
-          const subs = submissionsByAssignment[a.id] ?? []
-          const sub = subs.find((s) => s.student_user_id === student.user_id)
-          return sub && sub.score == null
-        }).length
+        const pending = pendingByStudent.get(student.user_id) ?? 0
 
         return (
           <LCard key={student.user_id} className="!p-0 overflow-hidden">
@@ -253,6 +336,8 @@ export function LecturerGradingWorkspace({
                   <span className={cn('text-sm font-bold', gradeColor(grades.letter_grade))}>
                     {grades.final_score}% · {grades.letter_grade}
                   </span>
+                ) : coreLoading ? (
+                  <LSkeleton className="h-4 w-20" />
                 ) : (
                   <span className="text-xs text-slate-400">No grades yet</span>
                 )}
@@ -271,46 +356,57 @@ export function LecturerGradingWorkspace({
 
             {open && (
               <div className="border-t border-slate-100 bg-slate-50/40 px-4 pb-4 pt-3 space-y-4 animate-in slide-in-from-top-1 duration-200">
-                {grades && (
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-xl bg-white border border-slate-100 p-3 text-center">
-                      <p className="text-[10px] uppercase text-slate-400 font-semibold">Quiz</p>
-                      <p className="text-lg font-bold text-slate-800 mt-0.5">{grades.quiz_average ?? '—'}%</p>
-                    </div>
-                    <div className="rounded-xl bg-white border border-slate-100 p-3 text-center">
-                      <p className="text-[10px] uppercase text-slate-400 font-semibold">Assignments</p>
-                      <p className="text-lg font-bold text-slate-800 mt-0.5">{grades.assignment_average ?? '—'}%</p>
-                    </div>
-                    <div className="rounded-xl bg-brand-50 border border-brand-100 p-3 text-center">
-                      <p className="text-[10px] uppercase text-brand-700 font-semibold">Final</p>
-                      <p className={cn('text-lg font-bold mt-0.5', gradeColor(grades.letter_grade))}>
-                        {grades.final_score ?? '—'}%
-                        {grades.letter_grade && <span className="text-sm ml-1">({grades.letter_grade})</span>}
-                      </p>
-                    </div>
+                {coreLoading && !grades ? (
+                  <div className="space-y-2">
+                    <LSkeleton className="h-20" />
+                    <LSkeleton className="h-32" />
                   </div>
-                )}
+                ) : (
+                  <>
+                    {grades && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-xl bg-white border border-slate-100 p-3 text-center">
+                          <p className="text-[10px] uppercase text-slate-400 font-semibold">Quiz</p>
+                          <p className="text-lg font-bold text-slate-800 mt-0.5">{grades.quiz_average ?? '—'}%</p>
+                        </div>
+                        <div className="rounded-xl bg-white border border-slate-100 p-3 text-center">
+                          <p className="text-[10px] uppercase text-slate-400 font-semibold">Assignments</p>
+                          <p className="text-lg font-bold text-slate-800 mt-0.5">{grades.assignment_average ?? '—'}%</p>
+                        </div>
+                        <div className="rounded-xl bg-brand-50 border border-brand-100 p-3 text-center">
+                          <p className="text-[10px] uppercase text-brand-700 font-semibold">Final</p>
+                          <p className={cn('text-lg font-bold mt-0.5', gradeColor(grades.letter_grade))}>
+                            {grades.final_score ?? '—'}%
+                            {grades.letter_grade && <span className="text-sm ml-1">({grades.letter_grade})</span>}
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
-                <div className="space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                    Assignments
-                  </p>
-                  {assignments.length === 0 ? (
-                    <p className="text-sm text-slate-500 py-2">No assignments in this course yet.</p>
-                  ) : (
-                    assignments.map((assignment) => (
-                      <AssignmentGradeRow
-                        key={assignment.id}
-                        assignment={assignment}
-                        studentUserId={student.user_id}
-                        submission={(submissionsByAssignment[assignment.id] ?? []).find(
-                          (s) => s.student_user_id === student.user_id
-                        )}
-                        onGraded={load}
-                      />
-                    ))
-                  )}
-                </div>
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        Assignments
+                      </p>
+                      {assignments.length === 0 ? (
+                        <p className="text-sm text-slate-500 py-2">No assignments in this course yet.</p>
+                      ) : (
+                        assignments.map((assignment) => (
+                          <AssignmentGradeRow
+                            key={assignment.id}
+                            assignment={assignment}
+                            studentUserId={student.user_id}
+                            submission={(submissionsByAssignment[assignment.id] ?? []).find(
+                              (s) => s.student_user_id === student.user_id
+                            )}
+                            onGraded={(score, feedback) =>
+                              patchAfterGrade(assignment.id, student.user_id, score, feedback)
+                            }
+                          />
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </LCard>
@@ -329,7 +425,7 @@ function AssignmentGradeRow({
   assignment: AssignmentMeta
   studentUserId: number
   submission?: Submission
-  onGraded: () => void
+  onGraded: (score: number, feedback: string) => void
 }) {
   const [score, setScore] = useState(submission?.score ?? '')
   const [feedback, setFeedback] = useState(submission?.feedback ?? '')
@@ -356,7 +452,7 @@ function AssignmentGradeRow({
         feedback,
       })
       toast.success('Grade saved')
-      onGraded()
+      onGraded(num, feedback)
     } catch (err) {
       toast.error(getLearningApiError(err, 'Failed to save grade'))
     } finally {
