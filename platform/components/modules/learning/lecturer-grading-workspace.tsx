@@ -27,6 +27,7 @@ interface AssignmentMeta {
   title: string
   max_score: number
   moduleTitle: string
+  enable_ai_grading?: boolean
 }
 
 function collectAssignments(offering: LMSOfferingDetail): AssignmentMeta[] {
@@ -39,6 +40,7 @@ function collectAssignments(offering: LMSOfferingDetail): AssignmentMeta[] {
           title: lesson.assignment.title,
           max_score: lesson.assignment.max_score || 100,
           moduleTitle: mod.title,
+          enable_ai_grading: lesson.assignment.enable_ai_grading,
         })
       }
     }
@@ -61,6 +63,16 @@ export function LecturerGradingWorkspace({
   >({})
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [summary, setSummary] = useState<{
+    total_students: number
+    submitted_assignments: number
+    missing_assignments: number
+    average_quiz_score: number | null
+    average_assignment_score: number | null
+    similarity_flagged: number
+    ai_awaiting_approval: number
+  } | null>(null)
+  const [bulkAiLoading, setBulkAiLoading] = useState<number | null>(null)
 
   const exportSheet = async () => {
     setExporting(true)
@@ -91,13 +103,15 @@ export function LecturerGradingWorkspace({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [offResp, gbResp] = await Promise.all([
+      const [offResp, gbResp, sumResp] = await Promise.all([
         learningAPI.getOfferingDetail(offeringId),
         learningAPI.getGradebook(offeringId),
+        learningAPI.getGradingSummary(offeringId),
       ])
       const detail = offResp.data as LMSOfferingDetail
       setOffering(detail)
       setGradebook(gbResp.data)
+      setSummary(sumResp.data)
 
       const assignmentList = collectAssignments(detail)
       const subResults = await Promise.allSettled(
@@ -118,6 +132,19 @@ export function LecturerGradingWorkspace({
 
   useEffect(() => { load() }, [load])
 
+  const runBulkAi = async (assignmentId: number) => {
+    setBulkAiLoading(assignmentId)
+    try {
+      const resp = await learningAPI.aiSuggestGradeBulk(assignmentId)
+      toast.success(`AI processed ${resp.data.processed} submission(s) — review and approve grades`)
+      load()
+    } catch (err) {
+      toast.error(getLearningApiError(err, 'Bulk AI grading failed'))
+    } finally {
+      setBulkAiLoading(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -133,7 +160,55 @@ export function LecturerGradingWorkspace({
   )
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {summary && (
+        <LCard className="!p-5 bg-gradient-to-br from-brand-50/50 to-white border-brand-100">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-700 mb-3">Course summary</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <SummaryStat label="Total students" value={String(summary.total_students)} />
+            <SummaryStat label="Submitted" value={String(summary.submitted_assignments)} />
+            <SummaryStat label="Missing" value={String(summary.missing_assignments)} />
+            <SummaryStat label="Avg quiz" value={summary.average_quiz_score != null ? `${summary.average_quiz_score}%` : '—'} />
+            <SummaryStat label="Avg assignment" value={summary.average_assignment_score != null ? `${summary.average_assignment_score}%` : '—'} />
+            <SummaryStat label="Similarity flags" value={String(summary.similarity_flagged)} warn={summary.similarity_flagged > 0} />
+          </div>
+          {summary.ai_awaiting_approval > 0 && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
+              AI-graded essays awaiting your approval: <strong>{summary.ai_awaiting_approval}</strong>
+            </p>
+          )}
+        </LCard>
+      )}
+
+      {assignments.length > 0 && (
+        <LCard className="!p-4">
+          <p className="text-xs font-semibold text-slate-700 mb-3 flex items-center gap-1">
+            <Sparkles className="w-4 h-4 text-brand-600" /> AI grading (bulk)
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {assignments.filter((a) => a.enable_ai_grading).map((a) => (
+              <LButton
+                key={a.id}
+                size="sm"
+                variant="secondary"
+                disabled={bulkAiLoading === a.id}
+                onClick={() => runBulkAi(a.id)}
+              >
+                {bulkAiLoading === a.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                AI suggest all — {a.title}
+              </LButton>
+            ))}
+            {assignments.every((a) => !a.enable_ai_grading) && (
+              <p className="text-xs text-slate-500">Enable AI grading in the assignment builder to use bulk suggestions.</p>
+            )}
+          </div>
+        </LCard>
+      )}
+
       <div className="flex items-center justify-between gap-3 mb-1">
         <div>
           <h2 className="font-semibold text-slate-900">Grade & review submissions</h2>
@@ -259,31 +334,12 @@ function AssignmentGradeRow({
   const [score, setScore] = useState(submission?.score ?? '')
   const [feedback, setFeedback] = useState(submission?.feedback ?? '')
   const [saving, setSaving] = useState(false)
-  const [aiLoading, setAiLoading] = useState(false)
 
   useEffect(() => {
-    setScore(submission?.score ?? '')
-    setFeedback(submission?.feedback ?? '')
+    const s = submission?.score ?? submission?.ai_suggested_score
+    setScore(s != null ? String(s) : '')
+    setFeedback(submission?.feedback ?? submission?.ai_feedback ?? '')
   }, [submission])
-
-  const suggestAi = async () => {
-    if (!submission) return
-    setAiLoading(true)
-    try {
-      const resp = await learningAPI.aiSuggestGrade(assignment.id, studentUserId)
-      if (resp.data.suggested_score != null) {
-        setScore(String(resp.data.suggested_score))
-      }
-      if (resp.data.feedback) {
-        setFeedback(resp.data.feedback)
-      }
-      toast.success('AI suggestion loaded — review and save the final grade')
-    } catch (err) {
-      toast.error(getLearningApiError(err, 'AI grading unavailable'))
-    } finally {
-      setAiLoading(false)
-    }
-  }
 
   const save = async () => {
     if (!submission) return
@@ -353,10 +409,21 @@ function AssignmentGradeRow({
               </p>
             )}
             {submission.ai_graded && submission.ai_suggested_score != null && (
-              <p className="text-xs text-brand-700 bg-brand-50 border border-brand-100 rounded-lg px-2 py-1.5 mt-2">
-                AI suggested: {submission.ai_suggested_score}/{assignment.max_score}
-                {submission.ai_feedback ? ` — ${submission.ai_feedback.slice(0, 120)}` : ''}
-              </p>
+              <div className="text-xs text-brand-700 bg-brand-50 border border-brand-100 rounded-lg px-2 py-1.5 mt-2 space-y-1">
+                <p>
+                  AI suggested: <strong>{submission.ai_suggested_score}/{assignment.max_score}</strong>
+                  {submission.ai_confidence_score != null && (
+                    <span className="ml-2 text-brand-600">Confidence: {(Number(submission.ai_confidence_score) * 100).toFixed(0)}%</span>
+                  )}
+                </p>
+                {submission.ai_feedback && <p>{submission.ai_feedback.slice(0, 200)}</p>}
+                {(submission.ai_strengths?.length ?? 0) > 0 && (
+                  <p><span className="font-semibold">Strengths:</span> {submission.ai_strengths!.join('; ')}</p>
+                )}
+                {(submission.ai_weaknesses?.length ?? 0) > 0 && (
+                  <p><span className="font-semibold">Improve:</span> {submission.ai_weaknesses!.join('; ')}</p>
+                )}
+              </div>
             )}
             {submission.file_key && (
               <p className="text-xs text-brand-700 mt-2 font-mono truncate">{submission.file_key}</p>
@@ -383,13 +450,9 @@ function AssignmentGradeRow({
               placeholder="Feedback (optional)"
               className="flex-1 h-9 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400"
             />
-            <LButton size="sm" variant="secondary" onClick={suggestAi} disabled={aiLoading} className="shrink-0">
-              {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-              AI suggest
-            </LButton>
             <LButton size="sm" onClick={save} disabled={saving} className="shrink-0">
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              Save grade
+              Approve / save grade
             </LButton>
           </div>
         </div>
@@ -398,6 +461,15 @@ function AssignmentGradeRow({
           <ClipboardList className="w-3.5 h-3.5" /> Waiting for this student to submit.
         </p>
       )}
+    </div>
+  )
+}
+
+function SummaryStat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className={`rounded-xl border p-3 text-center ${warn ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-white'}`}>
+      <p className="text-[10px] uppercase text-slate-400 font-semibold">{label}</p>
+      <p className={`text-lg font-bold mt-0.5 ${warn ? 'text-amber-800' : 'text-slate-800'}`}>{value}</p>
     </div>
   )
 }

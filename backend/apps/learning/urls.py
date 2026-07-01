@@ -5,7 +5,7 @@ from .views import (
     LessonViewSet, QuizViewSet, AssignmentViewSet,
     QuizQuestionViewSet, learning_dashboard_stats,
 )
-from .engine_views import lesson_live_position, offering_gradebook, export_grade_sheet
+from .engine_views import lesson_live_position, offering_gradebook, export_grade_sheet, offering_grading_summary
 
 router = DefaultRouter()
 router.register(r'offerings', LMSOfferingViewSet, basename='lms-offering')
@@ -22,4 +22,5 @@ urlpatterns = [
     path('lessons/<int:lesson_id>/live-position/', lesson_live_position, name='lesson-live-position'),
     path('offerings/<int:offering_id>/gradebook/', offering_gradebook, name='offering-gradebook'),
     path('offerings/<int:offering_id>/grade-sheet/', export_grade_sheet, name='offering-grade-sheet'),
+    path('offerings/<int:offering_id>/grading-summary/', offering_grading_summary, name='offering-grading-summary'),
 ]

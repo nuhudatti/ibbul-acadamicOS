@@ -11,6 +11,7 @@ import { learningAPI } from '@/lib/api'
 import { getLearningApiError } from '@/lib/learning-utils'
 import { MediaDropzone } from './engine/media-dropzone'
 import { QuizBuilderPanel } from './quiz-builder-panel'
+import { AssignmentBuilderPanel } from './assignment-builder-panel'
 import { StepCreator } from './step-creator'
 import { LCard, LButton, LBadge } from './learning-ui'
 import { cn } from '@/lib/utils'
@@ -402,7 +403,7 @@ function StepRow({
               onRefresh={onRefresh}
             />
           ) : lesson.content_type === 'assignment' && lesson.assignment ? (
-            <AssignmentEditor lesson={lesson} assignment={lesson.assignment} onRefresh={onRefresh} />
+            <AssignmentBuilderPanel lesson={lesson} assignment={lesson.assignment} onRefresh={onRefresh} />
           ) : (
             <LessonEditor lesson={lesson} onRefresh={onRefresh} />
           )}
@@ -513,79 +514,6 @@ function LessonEditor({ lesson, onRefresh }: { lesson: Lesson; onRefresh: () => 
       <LButton size="sm" onClick={save} disabled={saving}>
         {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
         Save changes
-      </LButton>
-    </div>
-  )
-}
-
-function AssignmentEditor({
-  lesson,
-  assignment,
-  onRefresh,
-}: {
-  lesson: Lesson
-  assignment: NonNullable<Lesson['assignment']>
-  onRefresh: () => void
-}) {
-  const [title, setTitle] = useState(assignment.title)
-  const [desc, setDesc] = useState(assignment.description || '')
-  const [maxScore, setMaxScore] = useState(assignment.max_score ?? 100)
-  const [saving, setSaving] = useState(false)
-
-  const save = async () => {
-    setSaving(true)
-    try {
-      await learningAPI.updateLesson(lesson.id, { title: title.trim() })
-      await learningAPI.updateAssignment(assignment.id, {
-        title: title.trim(),
-        description: desc,
-        max_score: maxScore,
-      })
-      toast.success('Assignment saved')
-      onRefresh()
-    } catch {
-      toast.error('Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-100 text-rose-800">
-        Editing assignment
-      </div>
-      <div>
-        <label className="text-xs font-semibold text-slate-600">Title</label>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="mt-1 w-full h-10 px-3 rounded-xl border border-slate-200 text-sm bg-white"
-        />
-      </div>
-      <div>
-        <label className="text-xs font-semibold text-slate-600">Instructions</label>
-        <textarea
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-          rows={5}
-          placeholder="What should students submit?"
-          className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white"
-        />
-      </div>
-      <div className="w-32">
-        <label className="text-xs font-semibold text-slate-600">Max score</label>
-        <input
-          type="number"
-          min={1}
-          value={maxScore}
-          onChange={(e) => setMaxScore(Number(e.target.value))}
-          className="mt-1 w-full h-10 px-3 rounded-xl border border-slate-200 text-sm bg-white"
-        />
-      </div>
-      <LButton size="sm" onClick={save} disabled={saving}>
-        {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-        Save assignment
       </LButton>
     </div>
   )

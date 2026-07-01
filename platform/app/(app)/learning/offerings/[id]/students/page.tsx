@@ -24,8 +24,6 @@ import {
 
 import { LecturerGradingWorkspace } from '@/components/modules/learning/lecturer-grading-workspace'
 
-import { GradeBreakdown } from '@/components/modules/learning/engine/grade-breakdown'
-
 
 
 interface StudentRow {
@@ -104,7 +102,7 @@ export default function OfferingStudentsPage() {
 
   return (
 
-    <div className="max-w-3xl mx-auto space-y-5">
+    <div className="max-w-5xl mx-auto space-y-5">
 
       <LBreadcrumb items={[
 
@@ -157,18 +155,6 @@ export default function OfferingStudentsPage() {
       ) : (
 
         <LecturerGradingWorkspace offeringId={id} students={students} />
-
-      )}
-
-
-
-      {students.length > 0 && (
-
-        <div className="mt-8">
-
-          <GradeBreakdown offeringId={id} />
-
-        </div>
 
       )}
 

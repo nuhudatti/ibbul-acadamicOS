@@ -41,6 +41,48 @@ from .permissions import IsInstructor, IsOfferingInstructor
 SUBMIT_GRACE_SECONDS = 30
 
 
+def _assignment_offering_context(assignment):
+    offering = assignment.lesson.module.offering
+    course = offering.course
+    dept = course.department
+    return {
+        'course_code': course.code,
+        'course_title': course.title,
+        'assignment_title': assignment.title,
+        'department_name': dept.name if dept else '',
+        'faculty_name': dept.faculty.name if dept and dept.faculty else '',
+        'session': offering.session,
+        'semester': offering.get_semester_display() if hasattr(offering, 'get_semester_display') else offering.semester,
+    }
+
+
+def _run_ai_suggestion(assignment, submission):
+    from .services.ai_grading_service import suggest_grade
+    ctx = _assignment_offering_context(assignment)
+    ok, result = suggest_grade(
+        course_code=ctx['course_code'],
+        course_title=ctx['course_title'],
+        assignment_title=ctx['assignment_title'],
+        question=assignment.description or assignment.title,
+        student_answer=submission.content,
+        rubric=getattr(assignment, 'rubric', '') or '',
+        max_score=float(assignment.max_score or 100),
+    )
+    if not ok:
+        return False, result
+    submission.ai_suggested_score = result.get('suggested_score')
+    submission.ai_feedback = result.get('feedback', '')
+    submission.ai_confidence_score = result.get('confidence_score')
+    submission.ai_strengths = result.get('strengths') or []
+    submission.ai_weaknesses = result.get('weaknesses') or []
+    submission.ai_graded = True
+    submission.save(update_fields=[
+        'ai_suggested_score', 'ai_feedback', 'ai_confidence_score',
+        'ai_strengths', 'ai_weaknesses', 'ai_graded',
+    ])
+    return True, result
+
+
 def _finalize_quiz_attempt(
     attempt,
     quiz,
@@ -969,11 +1011,75 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated(), IsInstructor()]
         return [IsAuthenticated()]
 
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='upload-submission',
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_submission(self, request, pk=None):
+        """Student uploads a file for a file-upload assignment; returns file_key URL."""
+        from django.conf import settings
+        from common.storage.cloudinary_service import is_configured, upload_file
+
+        if request.user.role != UserRole.STUDENT:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        assignment = self.get_object()
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'detail': 'No file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_mb = getattr(assignment, 'max_file_size_mb', 10) or 10
+        if upload.size > max_mb * 1024 * 1024:
+            return Response(
+                {'detail': f'File exceeds maximum size of {max_mb} MB.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = upload.name or 'file'
+        ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+        allowed = getattr(assignment, 'allowed_file_types', None) or []
+        if allowed and ext not in [t.lower().lstrip('.') for t in allowed]:
+            return Response(
+                {'detail': f'Allowed file types: {", ".join(allowed)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        safe_name = name.replace(' ', '_').replace('..', '')
+        use_cloudinary = getattr(settings, 'MEDIA_USE_CLOUDINARY', True) and is_configured()
+
+        if use_cloudinary:
+            folder = f"{getattr(settings, 'CLOUDINARY_LEARNING_FOLDER', 'ibbul/learning')}/assignments/{assignment.id}/submissions"
+            try:
+                url, _pid = upload_file(upload, folder=folder, filename=safe_name)
+            except RuntimeError:
+                return Response(
+                    {'detail': 'File storage not configured.'},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            except Exception as exc:
+                return Response({'detail': str(exc)[:300]}, status=status.HTTP_502_BAD_GATEWAY)
+            file_key = url
+        else:
+            import os
+            rel_dir = f'learning/assignments/{assignment.id}/submissions/{request.user.id}'
+            abs_dir = os.path.join(settings.MEDIA_ROOT, rel_dir)
+            os.makedirs(abs_dir, exist_ok=True)
+            rel_path = f'{rel_dir}/{safe_name}'
+            abs_path = os.path.join(settings.MEDIA_ROOT, rel_path)
+            with open(abs_path, 'wb+') as dest:
+                for chunk in upload.chunks():
+                    dest.write(chunk)
+            file_key = rel_path
+
+        return Response({'file_key': file_key, 'filename': name})
+
     @action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
         """
         Student submits an assignment.
-        POST /api/learning/assignments/{id}/submit/
+        POST /api/learning/assignments/{assignmentId}/submit/
         Body: { content, file_key (optional), focus_loss_count }
         """
         if request.user.role != UserRole.STUDENT:
@@ -983,20 +1089,44 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         existing = Submission.objects.filter(
             assignment=assignment, student=request.user
         ).first()
-        if existing:
+        if existing and not getattr(assignment, 'allow_resubmission', False):
             return Response(
                 {'detail': 'You have already submitted this assignment.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        submission = Submission.objects.create(
-            assignment=assignment,
-            student=request.user,
-            content=request.data.get('content', ''),
-            file_key=request.data.get('file_key', ''),
-            focus_loss_count=int(request.data.get('focus_loss_count', 0)),
-            violation_log=request.data.get('violations') or [],
-        )
+        content = request.data.get('content', '')
+        file_key = request.data.get('file_key', '')
+        violations = request.data.get('violations') or []
+        focus_loss = int(request.data.get('focus_loss_count', 0))
+        was_resubmit = False
+
+        if existing and getattr(assignment, 'allow_resubmission', False):
+            was_resubmit = True
+            existing.content = content
+            existing.file_key = file_key
+            existing.focus_loss_count = focus_loss
+            existing.violation_log = violations
+            existing.submitted_at = timezone.now()
+            existing.is_late = (
+                assignment.due_at and timezone.now() > assignment.due_at
+                and not assignment.allow_late_submission
+            )
+            existing.score = None
+            existing.graded_at = None
+            existing.graded_by = None
+            existing.feedback = ''
+            existing.save()
+            submission = existing
+        else:
+            submission = Submission.objects.create(
+                assignment=assignment,
+                student=request.user,
+                content=content,
+                file_key=file_key,
+                focus_loss_count=focus_loss,
+                violation_log=violations,
+            )
 
         if getattr(assignment, 'similarity_check_enabled', True):
             from .services.plagiarism_engine import check_against_corpus
@@ -1015,7 +1145,8 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             submission.save(update_fields=['similarity_score', 'similarity_report'])
 
         serializer = SubmissionSerializer(submission)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        status_code = status.HTTP_200_OK if was_resubmit else status.HTTP_201_CREATED
+        return Response(serializer.data, status=status_code)
 
     @action(detail=True, methods=['post'])
     def grade(self, request, pk=None):
@@ -1081,25 +1212,45 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        from .services.ai_grading_service import suggest_grade
-        ok, result = suggest_grade(
-            question=assignment.description or assignment.title,
-            student_answer=submission.content,
-            rubric=getattr(assignment, 'rubric', '') or '',
-            max_score=float(assignment.max_score or 100),
-        )
+        ok, result = _run_ai_suggestion(assignment, submission)
         if not ok:
             return Response(result, status=status.HTTP_502_BAD_GATEWAY)
-
-        submission.ai_suggested_score = result.get('suggested_score')
-        submission.ai_feedback = result.get('feedback', '')
-        submission.ai_graded = True
-        submission.save(update_fields=['ai_suggested_score', 'ai_feedback', 'ai_graded'])
 
         return Response({
             **result,
             'submission_id': submission.id,
+            'student_id': submission.student_id,
             'note': 'AI suggestion only — lecturer must approve the final grade.',
+        })
+
+    @action(detail=True, methods=['post'], url_path='ai-suggest-grade-bulk')
+    def ai_suggest_grade_bulk(self, request, pk=None):
+        """Run AI grading suggestions for all ungraded submissions on this assignment."""
+        if request.user.role not in (
+            UserRole.EXAMINER, UserRole.DEPARTMENT_ADMIN, UserRole.HOD,
+            UserRole.FACULTY_ADMIN, UserRole.SUPER_ADMIN,
+        ):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        assignment = self.get_object()
+        if assignment.lesson.module.offering.instructor_id != request.user.id and request.user.role == UserRole.EXAMINER:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        subs = assignment.submissions.filter(score__isnull=True).exclude(content='')
+        processed = 0
+        errors = []
+        for sub in subs:
+            ok, result = _run_ai_suggestion(assignment, sub)
+            if ok:
+                processed += 1
+            else:
+                errors.append({'student_id': sub.student_id, 'error': result.get('error', 'failed')})
+
+        return Response({
+            'processed': processed,
+            'total_pending': subs.count(),
+            'errors': errors,
+            'note': 'Review AI suggestions and save final grades individually or in bulk.',
         })
 
     @action(detail=True, methods=['get'])

@@ -742,8 +742,14 @@ export const learningAPI = {
   getAssignment: (lessonId: number) =>
     api.get('/learning/assignments/', { params: { lesson: lessonId } }),
 
-  submitAssignment: (assignmentId: number, data: { content: string; file_key?: string; focus_loss_count?: number }) =>
+  submitAssignment: (assignmentId: number, data: { content?: string; file_key?: string; focus_loss_count?: number }) =>
     api.post(`/learning/assignments/${assignmentId}/submit/`, data),
+
+  uploadAssignmentSubmission: (assignmentId: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return multipartPost(`/learning/assignments/${assignmentId}/upload-submission/`, fd, 120_000)
+  },
 
   getMySubmission: (assignmentId: number) =>
     api.get(`/learning/assignments/${assignmentId}/my_submission/`),
@@ -809,6 +815,20 @@ export const learningAPI = {
 
   aiSuggestGrade: (assignmentId: number, studentId: number) =>
     api.post(`/learning/assignments/${assignmentId}/ai-suggest-grade/`, { student_id: studentId }),
+
+  aiSuggestGradeBulk: (assignmentId: number) =>
+    api.post(`/learning/assignments/${assignmentId}/ai-suggest-grade-bulk/`),
+
+  getGradingSummary: (offeringId: number) =>
+    api.get<{
+      total_students: number
+      submitted_assignments: number
+      missing_assignments: number
+      average_quiz_score: number | null
+      average_assignment_score: number | null
+      similarity_flagged: number
+      ai_awaiting_approval: number
+    }>(`/learning/offerings/${offeringId}/grading-summary/`),
 }
 
 export default api

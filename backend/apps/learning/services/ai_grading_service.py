@@ -1,6 +1,5 @@
 """
 Optional AI-assisted grading — backend only. Lecturer must approve final score.
-Supports Ollama-compatible HTTP API or disabled stub.
 """
 from __future__ import annotations
 
@@ -8,7 +7,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from typing import Any, Optional, Tuple
+from typing import Any, Tuple
 
 from django.conf import settings
 
@@ -33,15 +32,14 @@ def _model_name() -> str:
 
 def suggest_grade(
     *,
+    course_code: str = '',
+    course_title: str = '',
+    assignment_title: str = '',
     question: str,
     student_answer: str,
     rubric: str = '',
     max_score: float = 100,
 ) -> Tuple[bool, dict[str, Any]]:
-    """
-    Returns (ok, { suggested_score, feedback, strengths, weaknesses, source }).
-    Falls back to similarity-only suggestion when AI is disabled.
-    """
     from .plagiarism_engine import normalize_text
 
     answer = (student_answer or '').strip()
@@ -51,28 +49,32 @@ def suggest_grade(
             'feedback': 'No answer provided.',
             'strengths': [],
             'weaknesses': ['Empty submission'],
+            'confidence_score': 1.0,
             'source': 'rule_based',
         }
 
     if not ai_grading_enabled():
-        ref = normalize_text(rubric or question)
         words = len(_tokenize(answer))
         base = min(max_score, max(10, words * 2)) if words >= 5 else 0
         return True, {
             'suggested_score': round(base, 2),
-            'feedback': 'AI grading is disabled. Review manually. Enable AI_GRADING_ENABLED on the server for AI suggestions.',
+            'feedback': 'AI grading is disabled. Review manually. Enable AI_GRADING_ENABLED on the server.',
             'strengths': [],
             'weaknesses': [],
+            'confidence_score': 0.5,
             'source': 'rule_based',
         }
 
     prompt = (
-        f'You are an academic grader. Score the student answer out of {max_score}.\n'
-        f'Question: {question}\n'
-        f'Rubric: {rubric or "Grade on accuracy, clarity, and completeness."}\n'
+        f'You are a university academic grader for {course_code} — {course_title}.\n'
+        f'Assignment: {assignment_title}\n'
+        f'Maximum score: {max_score}\n\n'
+        f'Question / instructions:\n{question}\n\n'
+        f'Marking rubric:\n{rubric or "Grade on accuracy, clarity, structure, and completeness."}\n\n'
         f'Student answer:\n{answer}\n\n'
         'Respond ONLY with valid JSON:\n'
-        '{"suggested_score": number, "feedback": "string", "strengths": ["..."], "weaknesses": ["..."]}'
+        '{"suggested_score": number, "feedback": "string", "strengths": ["..."], '
+        '"weaknesses": ["..."], "confidence_score": number between 0 and 1}'
     )
 
     payload = json.dumps({
@@ -97,11 +99,17 @@ def suggest_grade(
         parsed = json.loads(raw) if isinstance(raw, str) else raw
         score = float(parsed.get('suggested_score', 0))
         score = max(0, min(max_score, score))
+        confidence = parsed.get('confidence_score', 0.75)
+        try:
+            confidence = max(0.0, min(1.0, float(confidence)))
+        except (TypeError, ValueError):
+            confidence = 0.75
         return True, {
             'suggested_score': round(score, 2),
             'feedback': str(parsed.get('feedback', ''))[:2000],
             'strengths': parsed.get('strengths') or [],
             'weaknesses': parsed.get('weaknesses') or [],
+            'confidence_score': round(confidence, 2),
             'source': 'ai',
             'model': _model_name(),
         }

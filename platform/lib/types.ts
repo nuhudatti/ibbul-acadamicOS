@@ -312,6 +312,15 @@ export interface Assignment {
   max_score: number
   due_at: string | null
   allow_late_submission: boolean
+  enable_ai_grading?: boolean
+  similarity_check_enabled?: boolean
+  rubric?: string
+  assignment_type?: 'essay' | 'short_answer' | 'file_upload'
+  allow_resubmission?: boolean
+  resource_attachments?: Array<{ label: string; url: string; file_type: string }>
+  allowed_file_types?: string[]
+  max_file_size_mb?: number
+  allow_multiple_files?: boolean
 }
 
 export interface Submission {
@@ -336,6 +345,9 @@ export interface Submission {
   ai_suggested_score?: number | null
   ai_feedback?: string
   ai_graded?: boolean
+  ai_confidence_score?: number | null
+  ai_strengths?: string[]
+  ai_weaknesses?: string[]
 }
 
 export interface Enrollment {

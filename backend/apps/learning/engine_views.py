@@ -223,6 +223,109 @@ def offering_gradebook(request, offering_id):
     })
 
 
+def _quiz_security_stats(student, offering):
+    """Aggregate secure-mode events from quiz attempts in this offering."""
+    total_violations = 0
+    fullscreen_exits = 0
+    tab_switches = 0
+    for lesson in Lesson.objects.filter(
+        module__offering=offering, content_type='quiz', is_published=True
+    ).select_related('quiz'):
+        if not hasattr(lesson, 'quiz'):
+            continue
+        attempts = QuizAttempt.objects.filter(quiz=lesson.quiz, student=student).exclude(
+            status='in_progress'
+        )
+        for att in attempts:
+            total_violations += att.focus_loss_count or 0
+            for ev in att.violation_log or []:
+                et = str(ev.get('type', '')).lower()
+                if 'fullscreen' in et:
+                    fullscreen_exits += 1
+                if 'tab' in et or 'blur' in et or 'hidden' in et:
+                    tab_switches += 1
+    return total_violations, fullscreen_exits, tab_switches
+
+
+def _assignment_status(sub, assignment):
+    if not sub:
+        return 'Missing', ''
+    if sub.score is not None:
+        return 'OK', ''
+    report = sub.similarity_report or {}
+    if report.get('flagged') or (sub.similarity_score and float(sub.similarity_score) >= 0.85):
+        return 'Review', sub.similarity_score
+    if sub.ai_graded and sub.score is None:
+        return 'AI Pending', sub.similarity_score
+    return 'Pending', sub.similarity_score
+
+
+def _can_manage_offering(user, offering):
+    is_instructor = user.role == UserRole.EXAMINER and offering.instructor_id == user.id
+    is_staff = user.role in (
+        UserRole.DEPARTMENT_ADMIN, UserRole.HOD, UserRole.FACULTY_ADMIN, UserRole.SUPER_ADMIN
+    )
+    return is_instructor or is_staff
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def offering_grading_summary(request, offering_id):
+    """Dashboard stats for lecturer grading workspace."""
+    try:
+        offering = LMSOffering.objects.select_related('course__department__faculty', 'instructor').get(pk=offering_id)
+    except LMSOffering.DoesNotExist:
+        return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if not _can_manage_offering(request.user, offering):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+
+    enrollments = Enrollment.objects.filter(offering=offering, is_active=True).select_related('student')
+    total_students = enrollments.count()
+    student_ids = [e.student_id for e in enrollments]
+
+    assignment_lessons = Lesson.objects.filter(
+        module__offering=offering, content_type='assignment', is_published=True
+    ).select_related('assignment')
+
+    total_assignment_slots = total_students * assignment_lessons.count()
+    submissions = Submission.objects.filter(
+        assignment__lesson__module__offering=offering,
+        student_id__in=student_ids,
+    )
+    submitted_count = submissions.count()
+    missing = max(0, total_assignment_slots - submitted_count)
+
+    quiz_avgs = []
+    assignment_avgs = []
+    for enr in enrollments:
+        q = _student_quiz_average(enr.student, offering)
+        a = _student_assignment_average(enr.student, offering)
+        if q is not None:
+            quiz_avgs.append(q)
+        if a is not None:
+            assignment_avgs.append(a)
+
+    similarity_flagged = submissions.filter(similarity_report__flagged=True).count()
+    if similarity_flagged == 0:
+        similarity_flagged = sum(
+            1 for s in submissions
+            if s.similarity_score and float(s.similarity_score) >= 0.85
+        )
+
+    ai_awaiting = submissions.filter(ai_graded=True, score__isnull=True).count()
+
+    return Response({
+        'total_students': total_students,
+        'submitted_assignments': submitted_count,
+        'missing_assignments': missing,
+        'average_quiz_score': round(sum(quiz_avgs) / len(quiz_avgs), 1) if quiz_avgs else None,
+        'average_assignment_score': round(sum(assignment_avgs) / len(assignment_avgs), 1) if assignment_avgs else None,
+        'similarity_flagged': similarity_flagged,
+        'ai_awaiting_approval': ai_awaiting,
+    })
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def export_grade_sheet(request, offering_id):
@@ -231,7 +334,7 @@ def export_grade_sheet(request, offering_id):
     GET /api/learning/offerings/{id}/grade-sheet/
     """
     try:
-        offering = LMSOffering.objects.select_related('course', 'instructor').get(pk=offering_id)
+        offering = LMSOffering.objects.select_related('course__department__faculty', 'instructor').get(pk=offering_id)
     except LMSOffering.DoesNotExist:
         return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -240,11 +343,13 @@ def export_grade_sheet(request, offering_id):
     is_staff = user.role in (
         UserRole.DEPARTMENT_ADMIN, UserRole.HOD, UserRole.FACULTY_ADMIN, UserRole.SUPER_ADMIN
     )
-    if not (is_instructor or is_staff):
+    if not _can_manage_offering(user, offering):
         return Response(status=status.HTTP_403_FORBIDDEN)
 
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    from django.utils import timezone as dj_tz
 
     quiz_lessons = list(
         Lesson.objects.filter(
@@ -257,67 +362,107 @@ def export_grade_sheet(request, offering_id):
         ).select_related('assignment', 'module').order_by('module__order', 'order')
     )
 
-    enrollments = Enrollment.objects.filter(
-        offering=offering, is_active=True
-    ).select_related('student').order_by('student__student_id')
+    enrollments = list(
+        Enrollment.objects.filter(offering=offering, is_active=True)
+        .select_related('student')
+        .order_by('student__student_id')
+    )
+
+    course = offering.course
+    dept = course.department
+    faculty_name = dept.faculty.name if dept and dept.faculty else 'IBBUL'
+    dept_name = dept.name if dept else ''
+    instructor_name = offering.instructor.get_full_name() if offering.instructor else ''
+    semester_label = 'First Semester' if offering.semester == 'FIRST' else 'Second Semester'
 
     wb = Workbook()
     ws = wb.active
     ws.title = 'Grade Sheet'
 
-    headers = ['Matric', 'Student Name', 'Email']
-    for les in quiz_lessons:
-        headers.append(f'Quiz: {les.title[:40]}')
-    for les in assignment_lessons:
-        headers.append(f'Assignment: {les.title[:40]}')
-    headers.extend(['Quiz Avg %', 'Assignment Avg %', 'Final %', 'Grade'])
+    meta_font = Font(bold=True, size=11, color='0F6B3E')
+    ws['A1'] = 'IBBUL Academic OS — Official Grade Sheet'
+    ws['A1'].font = Font(bold=True, size=14, color='0F6B3E')
+    ws['A2'] = f'Faculty: {faculty_name}'
+    ws['A3'] = f'Department: {dept_name}'
+    ws['A4'] = f'Course: {course.code} — {course.title}'
+    ws['A5'] = f'Session: {offering.session} · {semester_label} · Lecturer: {instructor_name}'
+    ws['A6'] = f'Exported: {dj_tz.now().strftime("%d %B %Y %H:%M")}'
+    for r in range(2, 7):
+        ws[f'A{r}'].font = meta_font
+
+    header_row = 8
+    headers = [
+        'Matric No', 'Student Name', 'Program', 'Level',
+        'Quiz Score (%)', 'Violations', 'Fullscreen Exits', 'Tab Switches',
+    ]
+    for i, les in enumerate(assignment_lessons, 1):
+        short = les.assignment.title[:28] if hasattr(les, 'assignment') else les.title[:28]
+        headers.extend([f'{short} Score', f'{short} Similarity', f'{short} Status'])
 
     header_fill = PatternFill(start_color='0F6B3E', end_color='0F6B3E', fill_type='solid')
-    header_font = Font(bold=True, color='FFFFFF')
+    header_font = Font(bold=True, color='FFFFFF', size=10)
     for col, h in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col, value=h)
+        cell = ws.cell(row=header_row, column=col, value=h)
         cell.fill = header_fill
         cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
-    row_idx = 2
+    row_idx = header_row + 1
     for enr in enrollments:
         st = enr.student
+        q_avg = _student_quiz_average(st, offering)
+        violations, fs_exits, tab_sw = _quiz_security_stats(st, offering)
+        program = getattr(st, 'department_name', None) or st.department or dept_name
+
         row = [
             st.student_id or str(st.id),
             st.get_full_name(),
-            st.email,
+            program,
+            st.level or '',
+            round(q_avg, 1) if q_avg is not None else '',
+            violations,
+            fs_exits,
+            tab_sw,
         ]
-        for les in quiz_lessons:
-            att = _best_quiz_attempt(les.quiz, st) if hasattr(les, 'quiz') else None
-            row.append(float(att.score) if att and att.score is not None else '')
+
         for les in assignment_lessons:
             sub = None
             if hasattr(les, 'assignment'):
-                sub = Submission.objects.filter(
-                    assignment=les.assignment, student=st, score__isnull=False
-                ).first()
-            if sub:
-                max_s = les.assignment.max_score or 100
-                row.append(round(float(sub.score) / max_s * 100, 2))
+                sub = Submission.objects.filter(assignment=les.assignment, student=st).first()
+            if sub and sub.score is not None:
+                row.append(float(sub.score))
+            elif sub:
+                row.append('')
             else:
                 row.append('')
-        q_avg = _student_quiz_average(st, offering)
-        a_avg = _student_assignment_average(st, offering)
-        final, letter = compute_final_grade(q_avg, a_avg)
-        row.extend([
-            q_avg if q_avg is not None else '',
-            a_avg if a_avg is not None else '',
-            final if final is not None else '',
-            letter or '',
-        ])
+
+            if sub and sub.similarity_score is not None:
+                row.append(f'{float(sub.similarity_score) * 100:.0f}%')
+            else:
+                row.append('')
+
+            status_label, _ = _assignment_status(sub, les.assignment if hasattr(les, 'assignment') else None)
+            row.append(status_label)
+
         for col, val in enumerate(row, 1):
             ws.cell(row=row_idx, column=col, value=val)
         row_idx += 1
 
+    for col in range(1, len(headers) + 1):
+        letter = get_column_letter(col)
+        max_len = len(str(headers[col - 1]))
+        for r in range(header_row + 1, row_idx):
+            v = ws.cell(row=r, column=col).value
+            if v is not None:
+                max_len = max(max_len, len(str(v)))
+        ws.column_dimensions[letter].width = min(max_len + 3, 42)
+
+    ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    filename = f'{offering.course.code}_{offering.session}_grade_sheet.xlsx'
+    filename = f'{course.code}_{offering.session}_grade_sheet.xlsx'
     response = HttpResponse(
         buf.getvalue(),
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

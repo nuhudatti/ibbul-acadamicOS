@@ -385,6 +385,24 @@ class Assignment(models.Model):
     enable_ai_grading = models.BooleanField(default=False)
     similarity_check_enabled = models.BooleanField(default=True)
     rubric = models.TextField(blank=True, help_text='Grading rubric for AI-assisted grading')
+    assignment_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('essay', 'Essay'),
+            ('short_answer', 'Short Answer'),
+            ('file_upload', 'File Upload'),
+        ],
+        default='essay',
+    )
+    allow_resubmission = models.BooleanField(default=False)
+    resource_attachments = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='List of {label, url, file_type} lecturer resources',
+    )
+    allowed_file_types = models.JSONField(default=list, blank=True)
+    max_file_size_mb = models.PositiveIntegerField(default=10)
+    allow_multiple_files = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -445,6 +463,11 @@ class Submission(models.Model):
     )
     ai_feedback = models.TextField(blank=True)
     ai_graded = models.BooleanField(default=False)
+    ai_confidence_score = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+    )
+    ai_strengths = models.JSONField(default=list, blank=True)
+    ai_weaknesses = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ['-submitted_at']

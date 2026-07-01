@@ -62,7 +62,10 @@ class AssignmentSerializer(serializers.ModelSerializer):
         model = Assignment
         fields = ['id', 'lesson', 'title', 'description', 'instructions_key', 'max_score',
                   'due_at', 'allow_late_submission', 'enable_ai_grading',
-                  'similarity_check_enabled', 'rubric', 'created_at', 'updated_at']
+                  'similarity_check_enabled', 'rubric', 'assignment_type',
+                  'allow_resubmission', 'resource_attachments', 'allowed_file_types',
+                  'max_file_size_mb', 'allow_multiple_files',
+                  'created_at', 'updated_at']
 
 
 class LessonSerializer(serializers.ModelSerializer):
@@ -305,6 +308,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             'submitted_at', 'is_late', 'score', 'graded_at',
             'graded_by', 'graded_by_name', 'feedback', 'focus_loss_count', 'violation_log',
             'similarity_score', 'similarity_report', 'ai_suggested_score', 'ai_feedback', 'ai_graded',
+            'ai_confidence_score', 'ai_strengths', 'ai_weaknesses',
         ]
         read_only_fields = [
             'submitted_at', 'is_late', 'score', 'graded_at',
