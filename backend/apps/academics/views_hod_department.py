@@ -422,10 +422,22 @@ def department_invitations_export(request):
     return resp
 
 
-def _bulk_invite_row_error(row_num, *, error, first_name='', last_name='', email='', student_id='', raw_student_id=''):
+def _classify_invite_error(message: str) -> str:
+    lower = (message or '').lower()
+    if 'pending invitation already exists' in lower:
+        return 'already_invited'
+    if 'already exists' in lower or 'already active' in lower:
+        return 'already_exists'
+    if 'duplicate' in lower:
+        return 'duplicate'
+    return 'validation'
+
+
+def _bulk_invite_row_error(row_num, *, error, first_name='', last_name='', email='', student_id='', raw_student_id='', category='validation'):
     return {
         'row': row_num,
         'error': error,
+        'category': category,
         'first_name': first_name,
         'last_name': last_name,
         'email': email,
@@ -464,6 +476,7 @@ def _process_bulk_invite_rows(rows, *, invited_by, dept_id: int):
                 email=email,
                 student_id=student_id,
                 raw_student_id=raw_student_id,
+                category='validation',
             ))
             continue
 
@@ -476,6 +489,7 @@ def _process_bulk_invite_rows(rows, *, invited_by, dept_id: int):
                 email=email,
                 student_id=student_id,
                 raw_student_id=raw_student_id,
+                category='duplicate',
             ))
             continue
         if student_id in seen_matrics:
@@ -487,6 +501,7 @@ def _process_bulk_invite_rows(rows, *, invited_by, dept_id: int):
                 email=email,
                 student_id=student_id,
                 raw_student_id=raw_student_id,
+                category='duplicate',
             ))
             continue
         seen_emails.add(email)
@@ -523,14 +538,16 @@ def _process_bulk_invite_rows(rows, *, invited_by, dept_id: int):
                 entry['error'] = 'Email could not be sent. Please try again later.'
                 email_failed.append(entry)
         except ValueError as e:
+            msg = str(e)
             errors.append(_bulk_invite_row_error(
                 i,
-                error=str(e),
+                error=msg,
                 first_name=first_name,
                 last_name=last_name,
                 email=email,
                 student_id=student_id,
                 raw_student_id=raw_student_id,
+                category=_classify_invite_error(msg),
             ))
         except Exception as e:
             errors.append(_bulk_invite_row_error(
@@ -541,17 +558,20 @@ def _process_bulk_invite_rows(rows, *, invited_by, dept_id: int):
                 email=email,
                 student_id=student_id,
                 raw_student_id=raw_student_id,
+                category='validation',
             ))
 
-        time.sleep(0.12)
+        if len(rows) > 1:
+            time.sleep(0.08)
 
     return email_sent, email_failed, errors
 
 
-def _bulk_invite_response(email_sent, email_failed, errors, *, total_rows=None):
+def _bulk_invite_response(email_sent, email_failed, errors, *, total_rows=None, network_errors=None):
     sent_count = len(email_sent)
     failed_email_count = len(email_failed)
     error_count = len(errors)
+    network_count = len(network_errors or [])
     parts = []
     if sent_count:
         parts.append(f'{sent_count} verification email(s) sent')
@@ -559,19 +579,25 @@ def _bulk_invite_response(email_sent, email_failed, errors, *, total_rows=None):
         parts.append(f'{failed_email_count} invite(s) saved but email failed')
     if error_count:
         parts.append(f'{error_count} row(s) not invited')
+    if network_count:
+        parts.append(f'{network_count} row(s) not reached (retry needed)')
     message = ', '.join(parts) if parts else 'No rows processed'
+
+    already_invited = [e for e in errors if e.get('category') in ('already_invited', 'already_exists')]
 
     return {
         'message': message,
         'email_sent_count': sent_count,
         'email_failed_count': failed_email_count,
         'error_count': error_count,
+        'network_error_count': network_count,
+        'already_invited_count': len(already_invited),
         'created_count': sent_count,
-        'total_rows': total_rows if total_rows is not None else sent_count + failed_email_count + error_count,
+        'total_rows': total_rows if total_rows is not None else sent_count + failed_email_count + error_count + network_count,
         'email_sent': email_sent,
         'email_failed': email_failed,
         'errors': errors,
-        # Legacy fields for older frontend
+        'network_errors': network_errors or [],
         'created': email_sent + email_failed,
     }
 
@@ -591,10 +617,25 @@ def department_bulk_invite_rows(request):
     rows = request.data.get('rows') or []
     if not isinstance(rows, list) or not rows:
         return Response({'error': 'rows must be a non-empty list'}, status=400)
-    if len(rows) > 15:
-        return Response({'error': 'Maximum 15 rows per batch'}, status=400)
+    if len(rows) > 3:
+        return Response({'error': 'Maximum 3 rows per request — send one row at a time for reliability'}, status=400)
 
-    email_sent, email_failed, errors = _process_bulk_invite_rows(rows, invited_by=request.user, dept_id=int(dept_id))
+    try:
+        email_sent, email_failed, errors = _process_bulk_invite_rows(
+            rows, invited_by=request.user, dept_id=int(dept_id),
+        )
+    except Exception as exc:
+        return Response({
+            'error': f'Server error while processing batch: {str(exc)[:200]}',
+            'email_sent': [],
+            'email_failed': [],
+            'errors': [],
+            'email_sent_count': 0,
+            'email_failed_count': 0,
+            'error_count': 0,
+            'network_error_count': 0,
+        }, status=status.HTTP_200_OK)
+
     payload = _bulk_invite_response(
         email_sent, email_failed, errors,
         total_rows=request.data.get('total_rows'),

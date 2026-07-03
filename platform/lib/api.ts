@@ -573,6 +573,8 @@ export interface BulkInviteBatchResult {
   email_sent_count: number
   email_failed_count: number
   error_count: number
+  network_error_count?: number
+  already_invited_count?: number
   created_count: number
   total_rows: number
   batch?: number
@@ -602,6 +604,16 @@ export interface BulkInviteBatchResult {
     normalized_from?: string
   }>
   errors: Array<{
+    row: number
+    error: string
+    category?: string
+    first_name?: string
+    last_name?: string
+    email?: string
+    student_id?: string
+    raw_student_id?: string
+  }>
+  network_errors?: Array<{
     row: number
     error: string
     first_name?: string
@@ -673,7 +685,7 @@ export const hodDepartmentAPI = {
     total_rows?: number
   }) =>
     api.post<BulkInviteBatchResult>('/academics/hod/department/students/bulk-invite-rows/', data, {
-      timeout: 120_000,
+      timeout: 180_000,
     }),
 
   exportPendingInvitations: (scope: 'pending' | 'all' = 'pending') =>
