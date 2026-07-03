@@ -137,7 +137,7 @@ def send_via_sendgrid_http(
                     return True, 'Verification email sent'
                 body = resp.read().decode('utf-8', errors='replace')
                 logger.error('SendGrid non-202 response %s: %s', resp.status, body[:300])
-                return False, 'Email could not be sent. Please try again later.'
+                return False, _parse_sendgrid_http_error(resp.status, body)
         except urllib.error.HTTPError as exc:
             body = exc.read().decode('utf-8', errors='replace') if exc.fp else str(exc)
             detail = _parse_sendgrid_http_error(exc.code, body)
@@ -145,15 +145,16 @@ def send_via_sendgrid_http(
             if exc.code in (429, 503) and attempt < retry_max:
                 time.sleep(retry_delay * attempt)
                 continue
-            return False, 'Email could not be sent. Please try again later.'
+            return False, detail
         except urllib.error.URLError as exc:
+            detail = f'SendGrid unreachable: {exc.reason}'
             logger.error('SendGrid unreachable (attempt %s/%s): %s', attempt, retry_max, exc.reason)
             if attempt < retry_max:
                 time.sleep(retry_delay * attempt)
                 continue
-            return False, 'Email could not be sent. Please try again later.'
+            return False, detail
 
-    return False, 'Email could not be sent. Please try again later.'
+    return False, 'SendGrid send failed after retries'
 
 
 def email_configured() -> bool:
@@ -573,11 +574,18 @@ def build_password_reset_email(*, user, reset_url: str) -> Tuple[str, str, str]:
 def send_invitation_email_branded(invitation) -> Tuple[bool, str]:
     if not email_configured():
         msg = (
-            'Email is not configured on the server. Set SendGrid variables in Render '
-            '(EMAIL_HOST_PASSWORD or SMTP_PASS, DEFAULT_FROM_EMAIL or SMTP_FROM). '
-            'Copy the invitation link from the Invitations table until SMTP is fixed.'
+            'Email is not configured on the server. Set EMAIL_HOST_PASSWORD to your SendGrid API key (SG.…) '
+            'and DEFAULT_FROM_EMAIL to a verified sender in SendGrid.'
         )
-        logger.error('Invitation email skipped — SMTP not configured: %s', email_config_summary())
+        logger.error('Invitation email skipped — not configured: %s', email_config_summary())
+        return False, msg
+
+    if not _use_sendgrid_http_api():
+        msg = (
+            'SendGrid HTTP API is required for invitation emails. Set EMAIL_HOST_PASSWORD to an API key '
+            'starting with SG. (SMTP alone is not used for invitations on production.)'
+        )
+        logger.error('Invitation email skipped — no SendGrid HTTP API: %s', email_config_summary())
         return False, msg
 
     subject, plain, html_body = build_invitation_email(invitation)

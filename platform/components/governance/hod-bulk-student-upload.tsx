@@ -80,11 +80,29 @@ function colFromRow(row: Record<string, string>, ...names: string[]) {
   return ''
 }
 
+function cleanCell(value: string) {
+  let s = value.trim().replace(/^\ufeff/, '')
+  if (s.startsWith('="') && s.endsWith('"')) s = s.slice(2, -1)
+  return s.trim().replace(/^["']|["']$/g, '').trim()
+}
+
+function detectDelimiter(headerLine: string): string {
+  const commas = (headerLine.match(/,/g) || []).length
+  const semis = (headerLine.match(/;/g) || []).length
+  const tabs = (headerLine.match(/\t/g) || []).length
+  if (tabs >= semis && tabs >= commas && tabs > 0) return '\t'
+  if (semis > commas) return ';'
+  return ','
+}
+
 function parseCsvText(text: string): ParsedRow[] {
   const lines = text.split(/\r?\n/).filter((l) => l.trim())
   if (lines.length < 2) return []
 
+  const delimiter = detectDelimiter(lines[0])
+
   const splitLine = (line: string) => {
+    if (delimiter === '\t') return line.split('\t').map(cleanCell)
     const out: string[] = []
     let cur = ''
     let inQuotes = false
@@ -94,14 +112,14 @@ function parseCsvText(text: string): ParsedRow[] {
         inQuotes = !inQuotes
         continue
       }
-      if (ch === ',' && !inQuotes) {
-        out.push(cur.trim())
+      if (ch === delimiter && !inQuotes) {
+        out.push(cleanCell(cur))
         cur = ''
         continue
       }
       cur += ch
     }
-    out.push(cur.trim())
+    out.push(cleanCell(cur))
     return out
   }
 
@@ -194,18 +212,26 @@ function networkErrorFromRow(row: ParsedRow, err: unknown): NetworkErrorRow {
 async function processOneRow(
   row: ParsedRow,
   totalRows: number,
-  rowIndex: number,
 ): Promise<{ ok: true; data: BulkInviteBatchResult } | { ok: false; network: NetworkErrorRow }> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const resp = await hodDepartmentAPI.bulkInviteRows({
-        rows: [row],
-        batch: rowIndex,
-        batch_total: totalRows,
+      const resp = await hodDepartmentAPI.bulkInviteOne({
+        row: row.row,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        email: row.email,
+        student_id: row.student_id,
+        raw_student_id: row.raw_student_id,
         total_rows: totalRows,
       })
       return { ok: true, data: resp.data }
     } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.data && typeof err.response.data === 'object') {
+        const data = err.response.data as BulkInviteBatchResult & { errors?: unknown[] }
+        if (Array.isArray(data.errors) || typeof data.email_sent_count === 'number') {
+          return { ok: true, data: data as BulkInviteBatchResult }
+        }
+      }
       if (attempt < MAX_RETRIES && isRetryableError(err)) {
         await sleep(1000 * attempt)
         continue
@@ -286,7 +312,7 @@ export function HodBulkStudentUpload({ onDone }: { onDone: () => void }) {
       setProgress(`Row ${i + 1} of ${rows.length} — ${row.first_name} ${row.last_name} (${row.student_id || 'no matric'})`)
       setProgressPct(Math.round(((i + 1) / rows.length) * 100))
 
-      const outcome = await processOneRow(row, rows.length, i + 1)
+      const outcome = await processOneRow(row, rows.length)
       if (outcome.ok) {
         aggregated = mergeBatchResults(aggregated, outcome.data)
       } else {

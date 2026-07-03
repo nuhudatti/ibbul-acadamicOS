@@ -45,18 +45,33 @@ def sanitize_student_id(value: str) -> str:
     """
     if not value or not isinstance(value, str):
         return ''
-    s = value.strip()
+    s = value.strip().strip('\ufeff')
+    # Excel sometimes wraps values as ="U22/FNS/CSC/0001"
+    if s.startswith('="') and s.endswith('"'):
+        s = s[2:-1]
+    s = s.strip('"').strip("'")
     if not s:
         return ''
     s = s.replace('\\', '/')
+    s = re.sub(r'[\u200b-\u200d\ufeff]', '', s)
     s = re.sub(r'\s*/\s*', '/', s)
     if '/' not in s:
-        parts = [p for p in re.split(r'[\s,;\-]+', s) if p]
+        parts = [p for p in re.split(r'[\s,\t;\-]+', s) if p]
         if len(parts) == 4 and parts[0].upper().startswith('U'):
             s = '/'.join(parts)
     else:
         s = re.sub(r'\s+', '', s)
     return s.upper()
+
+
+def sanitize_email(value: str) -> str:
+    if not value or not isinstance(value, str):
+        return ''
+    s = value.strip().strip('\ufeff').lower()
+    s = re.sub(r'[\u200b-\u200d\ufeff]', '', s)
+    if s.startswith('mailto:'):
+        s = s[7:]
+    return s.strip()
 
 
 def validate_student_id_format(value: str) -> None:
@@ -82,13 +97,12 @@ def validate_student_id_format(value: str) -> None:
             'Student ID is required and must be a non-empty string.',
             code='invalid_student_id_format'
         )
-    normalized = normalize_student_id(value)
+    normalized = sanitize_student_id(value)
     if not normalized:
         raise ValidationError(
             'Student ID cannot be blank.',
             code='invalid_student_id_format'
         )
-    # Allow lowercase input; match after normalizing to uppercase
     if not STUDENT_ID_PATTERN.match(normalized):
         raise ValidationError(
             'Student ID must follow format: U{year}/{faculty}/{dept}/{number} '
@@ -102,4 +116,4 @@ def is_valid_student_id_format(value: str) -> bool:
     """Return True if value matches IBBUL student ID format (all years)."""
     if not value or not isinstance(value, str):
         return False
-    return bool(STUDENT_ID_PATTERN.match(normalize_student_id(value)))
+    return bool(STUDENT_ID_PATTERN.match(sanitize_student_id(value)))

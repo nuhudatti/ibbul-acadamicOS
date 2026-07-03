@@ -14,7 +14,7 @@ from django.utils import timezone
 from apps.academics.models import Department, Faculty
 from apps.accounts.audit import log_audit
 from apps.accounts.scope import get_faculty_admin_faculty_id, get_hod_department_id, is_faculty_admin, is_hod, is_super_admin
-from common.validators.student_id_validator import sanitize_student_id, validate_student_id_format
+from common.validators.student_id_validator import sanitize_email, sanitize_student_id, validate_student_id_format
 from apps.accounts.models import AuditLog, StaffInvitation, User, UserRole
 
 logger = logging.getLogger(__name__)
@@ -81,13 +81,17 @@ def _apply_delivery_result(
     return invitation
 
 
+INVITE_EMAIL_FAIL_USER_MSG = 'Email could not be sent. Please try again later.'
+
+
 def build_invitation_response_message(invitation: StaffInvitation) -> str:
     if invitation.delivery_status == StaffInvitation.DeliveryStatus.SENT:
         return 'Verification email sent'
     if invitation.delivery_status == StaffInvitation.DeliveryStatus.FAILED:
-        if invitation.delivery_error:
-            return f'Email could not be sent. Please try again later. ({invitation.delivery_error[:200]})'
-        return 'Email could not be sent. Please try again later.'
+        detail = (invitation.delivery_error or '').strip()
+        if detail and detail != INVITE_EMAIL_FAIL_USER_MSG and INVITE_EMAIL_FAIL_USER_MSG not in detail:
+            return f'{INVITE_EMAIL_FAIL_USER_MSG} ({detail})'
+        return INVITE_EMAIL_FAIL_USER_MSG
     if invitation.delivery_status == StaffInvitation.DeliveryStatus.QUEUED:
         return 'Invitation saved — email delivery pending'
     return 'Invitation created — copy the secure link from the invitations list'
@@ -244,7 +248,7 @@ def _create_invitation_record(
     if role not in allowed_roles:
         raise ValueError('Invalid role for this invitation')
 
-    email = (email or '').strip().lower() or None
+    email = sanitize_email(email or '')
     faculty = Faculty.objects.filter(pk=faculty_id).first() if faculty_id else None
     department = Department.objects.filter(pk=department_id).select_related('faculty').first() if department_id else None
 

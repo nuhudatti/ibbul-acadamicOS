@@ -26,7 +26,7 @@ from apps.accounts.invitation_service import (
 from apps.accounts.models import StaffInvitation, User, UserRole
 from apps.accounts.scope import get_hod_department_id, is_hod, is_super_admin
 from apps.academics.models import CourseAssignment, Result
-from common.validators.student_id_validator import sanitize_student_id
+from common.validators.student_id_validator import sanitize_email, sanitize_student_id
 
 
 def _require_hod(user) -> Response | None:
@@ -463,9 +463,22 @@ def _process_bulk_invite_rows(rows, *, invited_by, dept_id: int):
         i = int(item.get('row') or 0)
         first_name = (item.get('first_name') or '').strip()
         last_name = (item.get('last_name') or '').strip()
-        email = (item.get('email') or '').strip().lower()
+        email = sanitize_email((item.get('email') or '').strip())
         raw_student_id = (item.get('student_id') or item.get('raw_student_id') or '').strip()
         student_id = sanitize_student_id(raw_student_id) if raw_student_id else ''
+
+        if email and '@' not in email:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error=f'Invalid email address: {email}',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+                category='validation',
+            ))
+            continue
 
         if not first_name or not last_name or not email or not student_id:
             errors.append(_bulk_invite_row_error(
@@ -535,7 +548,7 @@ def _process_bulk_invite_rows(rows, *, invited_by, dept_id: int):
             if inv.delivery_status == StaffInvitation.DeliveryStatus.SENT:
                 email_sent.append(entry)
             else:
-                entry['error'] = 'Email could not be sent. Please try again later.'
+                entry['error'] = inv.delivery_error or 'Email could not be sent. Please try again later.'
                 email_failed.append(entry)
         except ValueError as e:
             msg = str(e)
@@ -604,8 +617,61 @@ def _bulk_invite_response(email_sent, email_failed, errors, *, total_rows=None, 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def department_bulk_invite_one(request):
+    """Invite one student — flat JSON body (preferred for bulk CSV UI)."""
+    denied = _require_hod(request.user)
+    if denied:
+        return denied
+
+    dept_id = _hod_department_id(request.user) or request.data.get('department_id')
+    if not dept_id:
+        return Response({'error': 'department_id is required'}, status=400)
+
+    data = request.data or {}
+    row = {
+        'row': int(data.get('row') or 0),
+        'first_name': (data.get('first_name') or '').strip(),
+        'last_name': (data.get('last_name') or '').strip(),
+        'email': sanitize_email(data.get('email') or ''),
+        'student_id': (data.get('student_id') or data.get('raw_student_id') or '').strip(),
+        'raw_student_id': (data.get('raw_student_id') or data.get('student_id') or '').strip(),
+    }
+
+    try:
+        email_sent, email_failed, errors = _process_bulk_invite_rows(
+            [row], invited_by=request.user, dept_id=int(dept_id),
+        )
+    except Exception as exc:
+        return Response({
+            'error': f'Server error: {str(exc)[:200]}',
+            'email_sent_count': 0,
+            'email_failed_count': 0,
+            'error_count': 1,
+            'errors': [_bulk_invite_row_error(
+                row['row'],
+                error=str(exc)[:200],
+                first_name=row['first_name'],
+                last_name=row['last_name'],
+                email=row['email'],
+                student_id=sanitize_student_id(row.get('student_id') or ''),
+                raw_student_id=row.get('raw_student_id') or '',
+            )],
+            'email_sent': [],
+            'email_failed': [],
+        }, status=status.HTTP_200_OK)
+
+    payload = _bulk_invite_response(
+        email_sent, email_failed, errors,
+        total_rows=data.get('total_rows'),
+    )
+    payload['row'] = row['row']
+    return Response(payload, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def department_bulk_invite_rows(request):
-    """Process a batch of student rows (JSON) — used by frontend to avoid server timeout."""
+    """Process a batch of student rows (JSON) — legacy; prefer bulk-invite-one."""
     denied = _require_hod(request.user)
     if denied:
         return denied
@@ -617,8 +683,10 @@ def department_bulk_invite_rows(request):
     rows = request.data.get('rows') or []
     if not isinstance(rows, list) or not rows:
         return Response({'error': 'rows must be a non-empty list'}, status=400)
-    if len(rows) > 3:
-        return Response({'error': 'Maximum 3 rows per request — send one row at a time for reliability'}, status=400)
+    if len(rows) > 1:
+        return Response({
+            'error': 'Send one student per request. The bulk upload UI uses /bulk-invite-one/ automatically.',
+        }, status=400)
 
     try:
         email_sent, email_failed, errors = _process_bulk_invite_rows(

@@ -671,6 +671,19 @@ export const hodDepartmentAPI = {
     return multipartPost('/academics/hod/department/students/bulk-invite/', form, 600_000)
   },
 
+  bulkInviteOne: (data: {
+    row: number
+    first_name: string
+    last_name: string
+    email: string
+    student_id: string
+    raw_student_id?: string
+    total_rows?: number
+  }) =>
+    api.post<BulkInviteBatchResult>('/academics/hod/department/students/bulk-invite-one/', data, {
+      timeout: 180_000,
+    }),
+
   bulkInviteRows: (data: {
     rows: Array<{
       row: number

@@ -7,6 +7,15 @@ import { extractApiError } from '@/lib/api-errors'
 
 export { extractApiError }
 
+const EMAIL_FAIL_MSG = 'Email could not be sent. Please try again later.'
+
+function formatEmailFailure(detail?: string | null): string {
+  const d = detail?.trim()
+  if (!d) return EMAIL_FAIL_MSG
+  if (d === EMAIL_FAIL_MSG || d.startsWith(EMAIL_FAIL_MSG)) return d
+  return `${EMAIL_FAIL_MSG} (${d})`
+}
+
 async function copyInviteLink(url: string | null | undefined): Promise<boolean> {
   if (!url) return false
   try {
@@ -22,7 +31,6 @@ export async function toastInvitationOutcome(
   inv: StaffInvitationRecord,
   opts?: { action?: 'created' | 'resent'; serverMessage?: string },
 ) {
-  const action = opts?.action ?? 'created'
   const url = inv.invite_url
 
   if (inv.delivery_status === 'SENT') {
@@ -37,10 +45,7 @@ export async function toastInvitationOutcome(
 
   if (inv.delivery_status === 'FAILED') {
     const copied = await copyInviteLink(url)
-    const detail = inv.delivery_error?.trim()
-    const base = detail
-      ? `Email could not be sent. Please try again later. (${detail})`
-      : 'Email could not be sent. Please try again later.'
+    const base = formatEmailFailure(inv.delivery_error)
 
     if (copied) {
       toast.error(`${base} Invite link copied — share manually or resend.`, { duration: 9000 })
