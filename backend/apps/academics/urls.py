@@ -42,6 +42,7 @@ urlpatterns = [
     path('hod/department/invitations/<int:invitation_id>/resend/', views_hod_department.department_invitation_resend, name='hod-invitation-resend'),
     path('hod/department/invitations/<int:invitation_id>/revoke/', views_hod_department.department_invitation_revoke, name='hod-invitation-revoke'),
     path('hod/department/students/bulk-invite/', views_hod_department.department_bulk_invite_students, name='hod-bulk-invite-students'),
+    path('hod/department/students/bulk-invite-rows/', views_hod_department.department_bulk_invite_rows, name='hod-bulk-invite-rows'),
     path('hod/department/students/<int:pk>/deactivate/', views_hod_department.department_student_deactivate, name='hod-student-deactivate'),
     path('hod/department/students/<int:pk>/reactivate/', views_hod_department.department_student_reactivate, name='hod-student-reactivate'),
     path('hod/department/students/<int:pk>/', views_hod_department.department_student_delete, name='hod-student-delete'),

@@ -82,13 +82,42 @@ def _apply_delivery_result(
 
 
 def build_invitation_response_message(invitation: StaffInvitation) -> str:
-    if invitation.delivery_status == StaffInvitation.DeliveryStatus.QUEUED:
-        return 'Invitation saved — email is being sent'
     if invitation.delivery_status == StaffInvitation.DeliveryStatus.SENT:
-        return 'Invitation email sent successfully'
-    if invitation.delivery_error:
-        return f'Invitation created but email could not be sent: {invitation.delivery_error}'
+        return 'Verification email sent'
+    if invitation.delivery_status == StaffInvitation.DeliveryStatus.FAILED:
+        if invitation.delivery_error:
+            return f'Email could not be sent. Please try again later. ({invitation.delivery_error[:200]})'
+        return 'Email could not be sent. Please try again later.'
+    if invitation.delivery_status == StaffInvitation.DeliveryStatus.QUEUED:
+        return 'Invitation saved — email delivery pending'
     return 'Invitation created — copy the secure link from the invitations list'
+
+
+def _deliver_invitation_email_sync(
+    invitation: StaffInvitation,
+    *,
+    is_resend: bool = False,
+    actor_id: Optional[int] = None,
+) -> StaffInvitation:
+    """Send invitation email inline; only mark SENT after SendGrid accepts (HTTP 202)."""
+    ok, msg = send_invitation_email(invitation)
+    _apply_delivery_result(invitation, ok, msg if not ok else '', is_resend=is_resend)
+    actor = User.objects.filter(pk=actor_id).first() if actor_id else None
+    log_audit(
+        AuditLog.Action.ADMIN_ACTION,
+        user=actor,
+        identifier=f'Invitation email to {invitation.email}',
+        extra={
+            'action': 'STAFF_INVITATION_SENT' if not is_resend else 'STAFF_INVITATION_RESENT',
+            'invitation_id': invitation.id,
+            'email': invitation.email,
+            'delivery_ok': ok,
+            'delivery_error': msg if not ok else '',
+            'invite_url': build_invite_url(invitation.token),
+        },
+    )
+    invitation.refresh_from_db()
+    return invitation
 
 
 def _queue_invitation_email(invitation: StaffInvitation, *, is_resend: bool = False, actor_id: Optional[int] = None) -> StaffInvitation:
@@ -382,6 +411,7 @@ def create_and_send_invitation(
     faculty_id: Optional[int] = None,
     department_id: Optional[int] = None,
     student_id: Optional[str] = None,
+    deliver_email_sync: bool = True,
 ) -> StaffInvitation:
     try:
         with transaction.atomic():
@@ -398,10 +428,12 @@ def create_and_send_invitation(
     except IntegrityError as exc:
         raise ValueError(_friendly_integrity_error(exc)) from exc
 
+    if deliver_email_sync:
+        return _deliver_invitation_email_sync(invitation, is_resend=False, actor_id=invited_by.id)
     return _queue_invitation_email(invitation, is_resend=False, actor_id=invited_by.id)
 
 
-def resend_invitation(invitation: StaffInvitation, actor: User) -> StaffInvitation:
+def resend_invitation(invitation: StaffInvitation, actor: User, *, deliver_email_sync: bool = True) -> StaffInvitation:
     if invitation.status == StaffInvitation.Status.ACCEPTED:
         raise ValueError('Invitation already accepted')
     if invitation.status == StaffInvitation.Status.REVOKED:
@@ -413,6 +445,8 @@ def resend_invitation(invitation: StaffInvitation, actor: User) -> StaffInvitati
         invitation.status = StaffInvitation.Status.PENDING
         invitation.save(update_fields=['token', 'expires_at', 'status'])
 
+    if deliver_email_sync:
+        return _deliver_invitation_email_sync(invitation, is_resend=True, actor_id=actor.id)
     return _queue_invitation_email(invitation, is_resend=True, actor_id=actor.id)
 
 

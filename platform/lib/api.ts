@@ -568,6 +568,51 @@ export interface HodStudentRow {
   pending_activation?: boolean
 }
 
+export interface BulkInviteBatchResult {
+  message: string
+  email_sent_count: number
+  email_failed_count: number
+  error_count: number
+  created_count: number
+  total_rows: number
+  batch?: number
+  batch_total?: number
+  email_sent: Array<{
+    row: number
+    first_name: string
+    last_name: string
+    student_id: string
+    email: string
+    invite_url: string
+    delivery_status?: string
+    delivery_error?: string | null
+    email_sent?: boolean
+    normalized_from?: string
+  }>
+  email_failed: Array<{
+    row: number
+    first_name: string
+    last_name: string
+    student_id: string
+    email: string
+    invite_url: string
+    delivery_status?: string
+    delivery_error?: string | null
+    error?: string
+    normalized_from?: string
+  }>
+  errors: Array<{
+    row: number
+    error: string
+    first_name?: string
+    last_name?: string
+    email?: string
+    student_id?: string
+    raw_student_id?: string
+  }>
+  created?: BulkInviteBatchResult['email_sent']
+}
+
 export const hodDepartmentAPI = {
   overview: () =>
     api.get<HodDepartmentOverview>('/academics/hod/department/overview/'),
@@ -611,34 +656,25 @@ export const hodDepartmentAPI = {
   bulkInviteStudents: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return multipartPost('/academics/hod/department/students/bulk-invite/', form, 600_000) as Promise<{
-      data: {
-        message: string
-        created_count: number
-        error_count: number
-        total_rows: number
-        created: Array<{
-          row: number
-          first_name: string
-          last_name: string
-          student_id: string
-          email: string
-          invite_url: string
-          delivery_status?: string
-          normalized_from?: string
-        }>
-        errors: Array<{
-          row: number
-          error: string
-          first_name?: string
-          last_name?: string
-          email?: string
-          student_id?: string
-          raw_student_id?: string
-        }>
-      }
-    }>
+    return multipartPost('/academics/hod/department/students/bulk-invite/', form, 600_000)
   },
+
+  bulkInviteRows: (data: {
+    rows: Array<{
+      row: number
+      first_name: string
+      last_name: string
+      email: string
+      student_id: string
+      raw_student_id?: string
+    }>
+    batch?: number
+    batch_total?: number
+    total_rows?: number
+  }) =>
+    api.post<BulkInviteBatchResult>('/academics/hod/department/students/bulk-invite-rows/', data, {
+      timeout: 120_000,
+    }),
 
   exportPendingInvitations: (scope: 'pending' | 'all' = 'pending') =>
     api.get('/academics/hod/department/invitations/export/', {

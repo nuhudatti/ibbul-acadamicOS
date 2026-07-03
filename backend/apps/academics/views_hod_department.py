@@ -434,6 +434,176 @@ def _bulk_invite_row_error(row_num, *, error, first_name='', last_name='', email
     }
 
 
+def _process_bulk_invite_rows(rows, *, invited_by, dept_id: int):
+    """
+    Process student invitation rows one-by-one with synchronous SendGrid delivery.
+    Returns email_sent, email_failed (invite saved, email not delivered), and errors (not invited).
+    """
+    import time
+
+    email_sent = []
+    email_failed = []
+    errors = []
+    seen_emails: set[str] = set()
+    seen_matrics: set[str] = set()
+
+    for item in rows:
+        i = int(item.get('row') or 0)
+        first_name = (item.get('first_name') or '').strip()
+        last_name = (item.get('last_name') or '').strip()
+        email = (item.get('email') or '').strip().lower()
+        raw_student_id = (item.get('student_id') or item.get('raw_student_id') or '').strip()
+        student_id = sanitize_student_id(raw_student_id) if raw_student_id else ''
+
+        if not first_name or not last_name or not email or not student_id:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error='Missing required field — need first_name, last_name, email, and student_id',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+            continue
+
+        if email in seen_emails:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error='Duplicate email in this upload — skipped',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+            continue
+        if student_id in seen_matrics:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error='Duplicate matric number in this upload — skipped',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+            continue
+        seen_emails.add(email)
+        seen_matrics.add(student_id)
+
+        try:
+            inv = create_and_send_invitation(
+                invited_by=invited_by,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                role=UserRole.STUDENT,
+                department_id=int(dept_id),
+                student_id=student_id,
+                deliver_email_sync=True,
+            )
+            entry = {
+                'row': i,
+                'first_name': first_name,
+                'last_name': last_name,
+                'student_id': inv.student_id,
+                'email': inv.email,
+                'invite_url': build_invite_url(inv.token),
+                'delivery_status': inv.delivery_status,
+                'delivery_error': inv.delivery_error or None,
+                'email_sent': inv.delivery_status == StaffInvitation.DeliveryStatus.SENT,
+            }
+            if raw_student_id and raw_student_id.strip().upper() != inv.student_id:
+                entry['normalized_from'] = raw_student_id.strip()
+
+            if inv.delivery_status == StaffInvitation.DeliveryStatus.SENT:
+                email_sent.append(entry)
+            else:
+                entry['error'] = 'Email could not be sent. Please try again later.'
+                email_failed.append(entry)
+        except ValueError as e:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error=str(e),
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+        except Exception as e:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error=f'Unexpected error: {str(e)[:200]}',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+
+        time.sleep(0.12)
+
+    return email_sent, email_failed, errors
+
+
+def _bulk_invite_response(email_sent, email_failed, errors, *, total_rows=None):
+    sent_count = len(email_sent)
+    failed_email_count = len(email_failed)
+    error_count = len(errors)
+    parts = []
+    if sent_count:
+        parts.append(f'{sent_count} verification email(s) sent')
+    if failed_email_count:
+        parts.append(f'{failed_email_count} invite(s) saved but email failed')
+    if error_count:
+        parts.append(f'{error_count} row(s) not invited')
+    message = ', '.join(parts) if parts else 'No rows processed'
+
+    return {
+        'message': message,
+        'email_sent_count': sent_count,
+        'email_failed_count': failed_email_count,
+        'error_count': error_count,
+        'created_count': sent_count,
+        'total_rows': total_rows if total_rows is not None else sent_count + failed_email_count + error_count,
+        'email_sent': email_sent,
+        'email_failed': email_failed,
+        'errors': errors,
+        # Legacy fields for older frontend
+        'created': email_sent + email_failed,
+    }
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def department_bulk_invite_rows(request):
+    """Process a batch of student rows (JSON) — used by frontend to avoid server timeout."""
+    denied = _require_hod(request.user)
+    if denied:
+        return denied
+
+    dept_id = _hod_department_id(request.user) or request.data.get('department_id')
+    if not dept_id:
+        return Response({'error': 'department_id is required'}, status=400)
+
+    rows = request.data.get('rows') or []
+    if not isinstance(rows, list) or not rows:
+        return Response({'error': 'rows must be a non-empty list'}, status=400)
+    if len(rows) > 15:
+        return Response({'error': 'Maximum 15 rows per batch'}, status=400)
+
+    email_sent, email_failed, errors = _process_bulk_invite_rows(rows, invited_by=request.user, dept_id=int(dept_id))
+    payload = _bulk_invite_response(
+        email_sent, email_failed, errors,
+        total_rows=request.data.get('total_rows'),
+    )
+    payload['batch'] = request.data.get('batch')
+    payload['batch_total'] = request.data.get('batch_total')
+    return Response(payload, status=status.HTTP_200_OK)
+
+
 @api_view(['POST'])
 @parser_classes([MultiPartParser, FormParser])
 @permission_classes([IsAuthenticated])
@@ -473,114 +643,24 @@ def department_bulk_invite_students(request):
                         return str(val).strip()
         return ''
 
-    created = []
-    errors = []
-    seen_emails: set[str] = set()
-    seen_matrics: set[str] = set()
-    row_count = 0
-
+    parsed_rows = []
     for i, row in enumerate(reader, start=2):
-        row_count += 1
-        first_name = col(row, 'first_name', 'firstname', 'first')
-        last_name = col(row, 'last_name', 'lastname', 'last', 'surname')
-        email = col(row, 'email', 'email_address').strip().lower()
-        raw_student_id = col(row, 'student_id', 'matric', 'matric_number', 'reg_number')
-        student_id = sanitize_student_id(raw_student_id) if raw_student_id else ''
+        parsed_rows.append({
+            'row': i,
+            'first_name': col(row, 'first_name', 'firstname', 'first'),
+            'last_name': col(row, 'last_name', 'lastname', 'last', 'surname'),
+            'email': col(row, 'email', 'email_address'),
+            'student_id': col(row, 'student_id', 'matric', 'matric_number', 'reg_number'),
+            'raw_student_id': col(row, 'student_id', 'matric', 'matric_number', 'reg_number'),
+        })
 
-        if not first_name or not last_name or not email or not student_id:
-            errors.append(_bulk_invite_row_error(
-                i,
-                error='Missing required field — need first_name, last_name, email, and student_id',
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-                student_id=student_id,
-                raw_student_id=raw_student_id,
-            ))
-            continue
-
-        if email in seen_emails:
-            errors.append(_bulk_invite_row_error(
-                i,
-                error='Duplicate email in this file — skipped',
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-                student_id=student_id,
-                raw_student_id=raw_student_id,
-            ))
-            continue
-        if student_id in seen_matrics:
-            errors.append(_bulk_invite_row_error(
-                i,
-                error='Duplicate matric number in this file — skipped',
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-                student_id=student_id,
-                raw_student_id=raw_student_id,
-            ))
-            continue
-        seen_emails.add(email)
-        seen_matrics.add(student_id)
-
-        try:
-            inv = create_and_send_invitation(
-                invited_by=request.user,
-                email=email,
-                first_name=first_name,
-                last_name=last_name,
-                role=UserRole.STUDENT,
-                department_id=int(dept_id),
-                student_id=student_id,
-            )
-            entry = {
-                'row': i,
-                'first_name': first_name,
-                'last_name': last_name,
-                'student_id': inv.student_id,
-                'email': inv.email,
-                'invite_url': build_invite_url(inv.token),
-                'delivery_status': inv.delivery_status,
-            }
-            if raw_student_id and raw_student_id.strip().upper() != inv.student_id:
-                entry['normalized_from'] = raw_student_id.strip()
-            created.append(entry)
-        except ValueError as e:
-            errors.append(_bulk_invite_row_error(
-                i,
-                error=str(e),
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-                student_id=student_id,
-                raw_student_id=raw_student_id,
-            ))
-        except Exception as e:
-            errors.append(_bulk_invite_row_error(
-                i,
-                error=f'Unexpected error: {str(e)[:200]}',
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-                student_id=student_id,
-                raw_student_id=raw_student_id,
-            ))
-
-    if row_count == 0:
+    if not parsed_rows:
         return Response({'error': 'CSV has no data rows'}, status=status.HTTP_400_BAD_REQUEST)
 
-    message = f'{len(created)} invitation(s) created'
-    if errors:
-        message += f', {len(errors)} skipped or failed'
-    else:
-        message += ' — all rows processed'
-
-    return Response({
-        'message': message,
-        'created_count': len(created),
-        'error_count': len(errors),
-        'total_rows': row_count,
-        'created': created,
-        'errors': errors,
-    }, status=status.HTTP_200_OK)
+    email_sent, email_failed, errors = _process_bulk_invite_rows(
+        parsed_rows, invited_by=request.user, dept_id=int(dept_id),
+    )
+    return Response(
+        _bulk_invite_response(email_sent, email_failed, errors, total_rows=len(parsed_rows)),
+        status=status.HTTP_200_OK,
+    )

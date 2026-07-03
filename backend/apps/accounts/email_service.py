@@ -127,17 +127,33 @@ def send_via_sendgrid_http(
         method='POST',
     )
     timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 20))
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if resp.status in (200, 202):
-                return True, 'Email sent via SendGrid'
-            body = resp.read().decode('utf-8', errors='replace')
-            return False, _parse_sendgrid_http_error(resp.status, body)
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode('utf-8', errors='replace') if exc.fp else str(exc)
-        return False, _parse_sendgrid_http_error(exc.code, body)
-    except urllib.error.URLError as exc:
-        return False, f'SendGrid HTTP unreachable: {exc.reason}'
+    retry_max = max(1, int(getattr(settings, 'SENDGRID_HTTP_RETRY_MAX', 3)))
+    retry_delay = float(getattr(settings, 'SENDGRID_HTTP_RETRY_DELAY', 1.5))
+
+    for attempt in range(1, retry_max + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status == 202:
+                    return True, 'Verification email sent'
+                body = resp.read().decode('utf-8', errors='replace')
+                logger.error('SendGrid non-202 response %s: %s', resp.status, body[:300])
+                return False, 'Email could not be sent. Please try again later.'
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode('utf-8', errors='replace') if exc.fp else str(exc)
+            detail = _parse_sendgrid_http_error(exc.code, body)
+            logger.error('SendGrid HTTP error %s (attempt %s/%s): %s', exc.code, attempt, retry_max, detail)
+            if exc.code in (429, 503) and attempt < retry_max:
+                time.sleep(retry_delay * attempt)
+                continue
+            return False, 'Email could not be sent. Please try again later.'
+        except urllib.error.URLError as exc:
+            logger.error('SendGrid unreachable (attempt %s/%s): %s', attempt, retry_max, exc.reason)
+            if attempt < retry_max:
+                time.sleep(retry_delay * attempt)
+                continue
+            return False, 'Email could not be sent. Please try again later.'
+
+    return False, 'Email could not be sent. Please try again later.'
 
 
 def email_configured() -> bool:
@@ -565,10 +581,11 @@ def send_invitation_email_branded(invitation) -> Tuple[bool, str]:
         return False, msg
 
     subject, plain, html_body = build_invitation_email(invitation)
-    ok, msg = send_branded_email(to=[invitation.email], subject=subject, plain_body=plain, html_body=html_body)
+    ok, detail = send_branded_email(to=[invitation.email], subject=subject, plain_body=plain, html_body=html_body)
     if ok:
-        return True, 'Invitation email sent'
-    return False, msg
+        return True, 'Verification email sent'
+    logger.error('Invitation email failed for %s: %s', invitation.email, detail)
+    return False, detail or 'SendGrid rejected the message'
 
 
 def send_password_reset_email(*, user, reset_url: str) -> Tuple[bool, str]:

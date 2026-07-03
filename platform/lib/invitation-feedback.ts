@@ -23,26 +23,14 @@ export async function toastInvitationOutcome(
   opts?: { action?: 'created' | 'resent'; serverMessage?: string },
 ) {
   const action = opts?.action ?? 'created'
-  const verb = action === 'resent' ? 'resent' : 'created'
   const url = inv.invite_url
-
-  if (inv.delivery_status === 'QUEUED') {
-    const copied = await copyInviteLink(url)
-    const msg = copied
-      ? 'Invitation saved — email is sending. Secure link copied to clipboard.'
-      : 'Invitation saved — email is sending. Refresh Invitations in a few seconds for delivery status.'
-    toast.success(msg, { duration: 7000 })
-    return
-  }
 
   if (inv.delivery_status === 'SENT') {
     const copied = await copyInviteLink(url)
     if (copied) {
-      toast.success('Invitation email sent — secure link copied to clipboard')
+      toast.success('Verification email sent — secure link copied to clipboard')
     } else {
-      toast.success(
-        opts?.serverMessage ?? 'Invitation email sent successfully',
-      )
+      toast.success(opts?.serverMessage ?? 'Verification email sent')
     }
     return
   }
@@ -51,16 +39,21 @@ export async function toastInvitationOutcome(
     const copied = await copyInviteLink(url)
     const detail = inv.delivery_error?.trim()
     const base = detail
-      ? `Invitation ${verb} but email failed: ${detail}`
-      : `Invitation ${verb} but email could not be sent. Use the secure link from Invitations.`
+      ? `Email could not be sent. Please try again later. (${detail})`
+      : 'Email could not be sent. Please try again later.'
 
     if (copied) {
-      toast.warning(`${base} Link copied to clipboard.`, { duration: 9000 })
+      toast.error(`${base} Invite link copied — share manually or resend.`, { duration: 9000 })
     } else {
-      toast.warning(base, { duration: 9000 })
+      toast.error(base, { duration: 9000 })
     }
     return
   }
 
-  toast.success(opts?.serverMessage ?? `Invitation ${verb} successfully`)
+  if (inv.delivery_status === 'QUEUED') {
+    toast.warning('Invitation saved — email delivery still pending. Refresh Invitations shortly.', { duration: 7000 })
+    return
+  }
+
+  toast.warning(opts?.serverMessage ?? 'Invitation saved — check delivery status in Invitations.')
 }
