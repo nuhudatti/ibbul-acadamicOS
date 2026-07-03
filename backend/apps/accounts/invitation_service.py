@@ -7,13 +7,14 @@ import threading
 from datetime import timedelta
 from typing import Optional, Tuple
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, close_old_connections, transaction
 from django.utils import timezone
 
 from apps.academics.models import Department, Faculty
 from apps.accounts.audit import log_audit
 from apps.accounts.scope import get_faculty_admin_faculty_id, get_hod_department_id, is_faculty_admin, is_hod, is_super_admin
-from common.validators.student_id_validator import validate_student_id_format
+from common.validators.student_id_validator import sanitize_student_id, validate_student_id_format
 from apps.accounts.models import AuditLog, StaffInvitation, User, UserRole
 
 logger = logging.getLogger(__name__)
@@ -238,8 +239,14 @@ def _create_invitation_record(
             raise ValueError('Matric number is required for student invitation')
         if not email:
             raise ValueError('Email is required so the student receives their invitation')
-        matric = str(student_id).strip().upper()
-        validate_student_id_format(matric)
+        matric = sanitize_student_id(student_id)
+        if not matric:
+            raise ValueError('Matric number is required for student invitation')
+        try:
+            validate_student_id_format(matric)
+        except ValidationError as exc:
+            msg = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
+            raise ValueError(msg) from exc
         if User.objects.filter(student_id=matric).exclude(role=UserRole.STUDENT).exists():
             raise ValueError('Matric number is already used by a non-student account')
         active_student = User.objects.filter(student_id=matric, role=UserRole.STUDENT, is_active=True).first()

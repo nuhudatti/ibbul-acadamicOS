@@ -611,8 +611,40 @@ export const hodDepartmentAPI = {
   bulkInviteStudents: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return multipartPost('/academics/hod/department/students/bulk-invite/', form)
+    return multipartPost('/academics/hod/department/students/bulk-invite/', form, 600_000) as Promise<{
+      data: {
+        message: string
+        created_count: number
+        error_count: number
+        total_rows: number
+        created: Array<{
+          row: number
+          first_name: string
+          last_name: string
+          student_id: string
+          email: string
+          invite_url: string
+          delivery_status?: string
+          normalized_from?: string
+        }>
+        errors: Array<{
+          row: number
+          error: string
+          first_name?: string
+          last_name?: string
+          email?: string
+          student_id?: string
+          raw_student_id?: string
+        }>
+      }
+    }>
   },
+
+  exportPendingInvitations: (scope: 'pending' | 'all' = 'pending') =>
+    api.get('/academics/hod/department/invitations/export/', {
+      params: { scope },
+      responseType: 'blob',
+    }),
 
   deactivateStudent: (id: number) =>
     api.post<{ message: string; is_active: boolean }>(`/academics/hod/department/students/${id}/deactivate/`),

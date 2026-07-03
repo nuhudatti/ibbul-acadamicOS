@@ -26,6 +26,7 @@ from apps.accounts.invitation_service import (
 from apps.accounts.models import StaffInvitation, User, UserRole
 from apps.accounts.scope import get_hod_department_id, is_hod, is_super_admin
 from apps.academics.models import CourseAssignment, Result
+from common.validators.student_id_validator import sanitize_student_id
 
 
 def _require_hod(user) -> Response | None:
@@ -376,6 +377,63 @@ def department_invitation_revoke(request, invitation_id):
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def department_invitations_export(request):
+    """Download CSV of pending student invitations with individual secure links."""
+    denied = _require_hod(request.user)
+    if denied:
+        return denied
+
+    qs = _invitation_qs(request.user).filter(role=UserRole.STUDENT)
+    scope = (request.GET.get('scope') or 'pending').strip().lower()
+    if scope == 'pending':
+        qs = qs.filter(
+            status__in=(StaffInvitation.Status.PENDING, StaffInvitation.Status.SENT),
+            expires_at__gt=timezone.now(),
+        )
+    elif scope == 'all':
+        pass
+    else:
+        qs = qs.filter(status=scope.upper())
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        'first_name', 'last_name', 'email', 'student_id', 'status',
+        'delivery_status', 'invite_url', 'expires_at', 'delivery_error',
+    ])
+    for inv in qs.iterator():
+        writer.writerow([
+            inv.first_name,
+            inv.last_name,
+            inv.email or '',
+            inv.student_id or '',
+            inv.status,
+            inv.delivery_status or '',
+            build_invite_url(inv.token) if inv.is_pending_acceptance else '',
+            inv.expires_at.isoformat() if inv.expires_at else '',
+            inv.delivery_error or '',
+        ])
+
+    from django.http import HttpResponse
+    resp = HttpResponse(buf.getvalue(), content_type='text/csv; charset=utf-8')
+    resp['Content-Disposition'] = 'attachment; filename="student_invitations_pending.csv"'
+    return resp
+
+
+def _bulk_invite_row_error(row_num, *, error, first_name='', last_name='', email='', student_id='', raw_student_id=''):
+    return {
+        'row': row_num,
+        'error': error,
+        'first_name': first_name,
+        'last_name': last_name,
+        'email': email,
+        'student_id': student_id,
+        'raw_student_id': raw_student_id or student_id,
+    }
+
+
 @api_view(['POST'])
 @parser_classes([MultiPartParser, FormParser])
 @permission_classes([IsAuthenticated])
@@ -393,10 +451,14 @@ def department_bulk_invite_students(request):
     if not dept_id:
         return Response({'error': 'department_id is required'}, status=400)
 
+    raw_bytes = upload.read()
     try:
-        raw = upload.read().decode('utf-8-sig')
+        raw = raw_bytes.decode('utf-8-sig')
     except UnicodeDecodeError:
-        return Response({'error': 'File must be UTF-8 CSV'}, status=400)
+        try:
+            raw = raw_bytes.decode('latin-1')
+        except Exception:
+            return Response({'error': 'File must be UTF-8 or Latin-1 CSV'}, status=400)
 
     reader = csv.DictReader(io.StringIO(raw))
     if not reader.fieldnames:
@@ -413,14 +475,55 @@ def department_bulk_invite_students(request):
 
     created = []
     errors = []
+    seen_emails: set[str] = set()
+    seen_matrics: set[str] = set()
+    row_count = 0
+
     for i, row in enumerate(reader, start=2):
+        row_count += 1
         first_name = col(row, 'first_name', 'firstname', 'first')
         last_name = col(row, 'last_name', 'lastname', 'last', 'surname')
-        email = col(row, 'email', 'email_address')
-        student_id = col(row, 'student_id', 'matric', 'matric_number', 'reg_number')
+        email = col(row, 'email', 'email_address').strip().lower()
+        raw_student_id = col(row, 'student_id', 'matric', 'matric_number', 'reg_number')
+        student_id = sanitize_student_id(raw_student_id) if raw_student_id else ''
+
         if not first_name or not last_name or not email or not student_id:
-            errors.append({'row': i, 'error': 'first_name, last_name, email, student_id required'})
+            errors.append(_bulk_invite_row_error(
+                i,
+                error='Missing required field — need first_name, last_name, email, and student_id',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
             continue
+
+        if email in seen_emails:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error='Duplicate email in this file — skipped',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+            continue
+        if student_id in seen_matrics:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error='Duplicate matric number in this file — skipped',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+            continue
+        seen_emails.add(email)
+        seen_matrics.add(student_id)
+
         try:
             inv = create_and_send_invitation(
                 invited_by=request.user,
@@ -431,19 +534,53 @@ def department_bulk_invite_students(request):
                 department_id=int(dept_id),
                 student_id=student_id,
             )
-            created.append({
+            entry = {
                 'row': i,
+                'first_name': first_name,
+                'last_name': last_name,
                 'student_id': inv.student_id,
                 'email': inv.email,
                 'invite_url': build_invite_url(inv.token),
-            })
+                'delivery_status': inv.delivery_status,
+            }
+            if raw_student_id and raw_student_id.strip().upper() != inv.student_id:
+                entry['normalized_from'] = raw_student_id.strip()
+            created.append(entry)
         except ValueError as e:
-            errors.append({'row': i, 'error': str(e), 'student_id': student_id})
+            errors.append(_bulk_invite_row_error(
+                i,
+                error=str(e),
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+        except Exception as e:
+            errors.append(_bulk_invite_row_error(
+                i,
+                error=f'Unexpected error: {str(e)[:200]}',
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                student_id=student_id,
+                raw_student_id=raw_student_id,
+            ))
+
+    if row_count == 0:
+        return Response({'error': 'CSV has no data rows'}, status=status.HTTP_400_BAD_REQUEST)
+
+    message = f'{len(created)} invitation(s) created'
+    if errors:
+        message += f', {len(errors)} skipped or failed'
+    else:
+        message += ' — all rows processed'
 
     return Response({
-        'message': f'{len(created)} invitation(s) sent, {len(errors)} failed',
+        'message': message,
         'created_count': len(created),
         'error_count': len(errors),
-        'created': created[:50],
-        'errors': errors[:50],
-    }, status=status.HTTP_201_CREATED if created else status.HTTP_400_BAD_REQUEST)
+        'total_rows': row_count,
+        'created': created,
+        'errors': errors,
+    }, status=status.HTTP_200_OK)

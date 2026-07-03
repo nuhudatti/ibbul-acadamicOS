@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Copy, Check, RefreshCw, Ban, Mail, Clock, AlertCircle, Users, GraduationCap, BookOpen, UserPlus,
-  UserX, UserCheck, Trash2, Loader2,
+  UserX, UserCheck, Trash2, Loader2, Download,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { hodDepartmentAPI, type StaffInvitationRecord } from '@/lib/api'
@@ -55,6 +55,39 @@ function CopyLinkButton({ url }: { url: string }) {
     <button type="button" onClick={copy} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">
       {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
       {copied ? 'Copied' : 'Copy link'}
+    </button>
+  )
+}
+
+function ExportPendingButton() {
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    setBusy(true)
+    try {
+      const resp = await hodDepartmentAPI.exportPendingInvitations('pending')
+      const blob = resp.data as Blob
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'student_invitations_pending.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Downloaded pending invitation links')
+    } catch {
+      toast.error('Could not export invitations')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={run}
+      disabled={busy}
+      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+    >
+      {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+      Export pending CSV
     </button>
   )
 }
@@ -133,13 +166,16 @@ export function HodDepartmentInvitations({ invitations, loading, onRefresh, onIn
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onInvite}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-700 text-white text-sm font-semibold hover:bg-brand-800"
-        >
-          <UserPlus className="w-4 h-4" /> Invite user
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <ExportPendingButton />
+          <button
+            type="button"
+            onClick={onInvite}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-700 text-white text-sm font-semibold hover:bg-brand-800"
+          >
+            <UserPlus className="w-4 h-4" /> Invite user
+          </button>
+        </div>
       </div>
 
       {filtered.length === 0 ? (

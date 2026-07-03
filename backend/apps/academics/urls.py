@@ -37,6 +37,7 @@ urlpatterns = [
     path('hod/department/overview/', views_hod_department.department_overview, name='hod-department-overview'),
     path('hod/department/lecturers/', views_hod_department.department_lecturers, name='hod-department-lecturers'),
     path('hod/department/students/', views_hod_department.department_students, name='hod-department-students'),
+    path('hod/department/invitations/export/', views_hod_department.department_invitations_export, name='hod-invitations-export'),
     path('hod/department/invitations/', views_hod_department.department_invitations, name='hod-department-invitations'),
     path('hod/department/invitations/<int:invitation_id>/resend/', views_hod_department.department_invitation_resend, name='hod-invitation-resend'),
     path('hod/department/invitations/<int:invitation_id>/revoke/', views_hod_department.department_invitation_revoke, name='hod-invitation-revoke'),

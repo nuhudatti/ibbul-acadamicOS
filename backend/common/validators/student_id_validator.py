@@ -38,6 +38,27 @@ def normalize_student_id(value: str) -> str:
     return value.strip().upper()
 
 
+def sanitize_student_id(value: str) -> str:
+    """
+    Fix common CSV/Excel issues before validation.
+    Handles extra spaces, spaces around slashes, backslashes, and space-separated segments.
+    """
+    if not value or not isinstance(value, str):
+        return ''
+    s = value.strip()
+    if not s:
+        return ''
+    s = s.replace('\\', '/')
+    s = re.sub(r'\s*/\s*', '/', s)
+    if '/' not in s:
+        parts = [p for p in re.split(r'[\s,;\-]+', s) if p]
+        if len(parts) == 4 and parts[0].upper().startswith('U'):
+            s = '/'.join(parts)
+    else:
+        s = re.sub(r'\s+', '', s)
+    return s.upper()
+
+
 def validate_student_id_format(value: str) -> None:
     """
     Validates student ID follows IBBUL format for all years and cohorts.
