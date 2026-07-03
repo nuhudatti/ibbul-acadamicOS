@@ -54,7 +54,7 @@ function downloadCsv(filename: string, headers: string[], rows: string[][]) {
 function colFromRow(row: Record<string, string>, ...names: string[]) {
   for (const n of names) {
     for (const [key, val] of Object.entries(row)) {
-      if (key && key.trim().toLowerCase().replace(/\s+/g, '_') === n.toLower()) {
+      if (key && key.trim().toLowerCase().replace(/\s+/g, '_') === n.toLowerCase()) {
         if (val != null && String(val).trim()) return String(val).trim()
       }
     }
